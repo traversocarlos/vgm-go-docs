@@ -1,20 +1,20 @@
 # Integraciones y fuentes de datos
 
-**Versión:** 1.0
-**Fecha:** 2026-03-13
+**Versión:** 1.1
+**Fecha:** 2026-03-14
 **Estado:** Activo
 
 ---
 
 ## Principio
 
-VGM Go recibe posiciones GPS desde múltiples fuentes a través de **un único endpoint REST**. No importa de dónde vengan los datos — todos entran por el mismo lugar.
+VGM Core Geo recibe posiciones GPS desde múltiples fuentes a través de **un único endpoint REST**. No importa de dónde vengan los datos — todos entran por el mismo lugar.
 
 ```
 POST /api/v1/posiciones
 ```
 
-VGM Go no sabe ni le importa quién mandó los datos. El origen se identifica por la API Key del request.
+VGM Core Geo no sabe ni le importa quién mandó los datos. El origen se identifica por la API Key del request.
 
 ---
 
@@ -55,24 +55,24 @@ Un proceso bridge independiente hace:
 
 ```
 1. Lee SQL Server via vista v_posiciones_nuevas
-2. Llama a POST /api/v1/posiciones de VGM Go
+2. Llama a POST /api/v1/posiciones de VGM Core Geo
 3. Marca las posiciones como procesadas en VGMDIS
 ```
 
-**Punto clave:** el bridge llama al endpoint REST — nunca escribe directo en la base de datos de VGM Go. Esto protege a VGM Go del futuro: cuando VGMDIS migre a VGM Core, solo cambia el bridge, VGM Go no se toca.
+**Punto clave:** el bridge llama al endpoint REST — nunca escribe directo en la base de datos de VGM Core Geo. Esto protege a VGM Core Geo del futuro: cuando VGMDIS migre a VGM Core, solo cambia el bridge, VGM Core Geo no se toca.
 
 ---
 
 ## Integración futura con VGM Core
 
-Cuando un cliente usa VGM Core + VGM Go, los datos de empleados y puntos de venta se pueden sincronizar. Modelos posibles ordenados por complejidad:
+Cuando un cliente usa VGM Core + VGM Core Geo, los datos de empleados y puntos de venta se pueden sincronizar. Modelos posibles ordenados por complejidad:
 
 | Modelo | Cómo funciona | Cuándo usarlo |
 |---|---|---|
 | Sin integración | Cada sistema carga sus datos por separado | Clientes que usan solo uno de los dos |
 | Exportación/importación | CSV manual o programado | Cambios ocasionales, volumen bajo |
 | ETL programado | Script que sincroniza periódicamente | Cambios frecuentes, delay tolerable |
-| API de integración | VGM Core expone endpoints que VGM Go consulta | Sincronización casi en tiempo real |
+| API de integración | VGM Core expone endpoints que VGM Core Geo consulta | Sincronización casi en tiempo real |
 
 **Recomendación para arrancar:** exportación/importación. Los empleados no cambian todos los días. Se evoluciona cuando haya un cliente real que lo necesite.
 

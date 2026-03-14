@@ -1,7 +1,7 @@
-# Contexto y visión de VGM Go
+# Contexto y visión de VGM Core Geo
 
-**Versión:** 1.0
-**Fecha:** 2026-03-13
+**Versión:** 1.1
+**Fecha:** 2026-03-14
 **Estado:** Activo
 
 ---
@@ -16,11 +16,11 @@ VGM Sistemas opera **Ultra GEO**, el sistema actual de geolocalización. Tiene p
 - Código de trayectoria comentado (funcionalidad perdida)
 - Sin posibilidad de evolución técnica
 
-**VGM Go es el reemplazo completo de Ultra GEO.**
+**VGM Core Geo es el reemplazo completo de Ultra GEO.**
 
 ---
 
-## 2. Qué hace VGM Go
+## 2. Qué hace VGM Core Geo
 
 Sistema de geolocalización en tiempo real para empresas de distribución y ventas. Permite:
 
@@ -34,7 +34,7 @@ Sistema de geolocalización en tiempo real para empresas de distribución y vent
 
 ## 3. Modelo de negocio
 
-VGM Go es un **producto autónomo**. Se puede vender:
+VGM Core Geo es un **producto autónomo**. Se puede vender:
 
 - A clientes que ya usan VGM Core ERP
 - A clientes que no usan ningún producto VGM
@@ -47,11 +47,11 @@ No requiere VGM Core para funcionar. Tiene su propia base de datos y su propio s
 
 | Producto | Relación |
 |---|---|
-| **VGM Core** | Producto hermano. Pueden integrarse pero son independientes. |
-| **VGM GEMA** | App móvil Android que envía posiciones a VGM Go. |
-| **Ultra GEO** | Sistema legacy que VGM Go reemplaza. |
+| **VGM Core** | Producto hermano. Mismo stack, mismas convenciones. Pueden integrarse pero son independientes. |
+| **VGM GEMA** | App móvil Android que envía posiciones a VGM Core Geo. |
+| **Ultra GEO** | Sistema legacy que VGM Core Geo reemplaza. |
 
-La integración entre VGM Go y VGM Core (cuando un cliente usa los dos) se hace por procesos separados — nunca comparten base de datos.
+La integración entre VGM Core Geo y VGM Core (cuando un cliente usa los dos) se hace por procesos separados — nunca comparten base de datos.
 
 ---
 
@@ -61,4 +61,4 @@ En reunión del equipo (Mauricio, Gustavo, Lucas) se decidió:
 
 > Cada producto VGM es completamente autónomo. Datos propios, release independiente, sin módulos compartidos. La integración se hace por procesos separados.
 
-Esta decisión aplica a VGM Go, VGM Core y VGM GEMA.
+Esta decisión aplica a VGM Core Geo, VGM Core y VGM GEMA.

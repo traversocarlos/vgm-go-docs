@@ -1,7 +1,7 @@
 # Seguridad y autenticación
 
-**Versión:** 2.0
-**Fecha:** 2026-03-13
+**Versión:** 2.1
+**Fecha:** 2026-03-14
 **Estado:** Activo
 
 ---
@@ -10,12 +10,12 @@
 
 ### Etapa 1 — JWT propio (arranque)
 
-VGM Go genera sus propios tokens JWT internamente.
+VGM Core Geo genera sus propios tokens JWT internamente.
 
 - Endpoint de login: `POST /api/v1/auth/login`
-- VGM Go valida usuario/contraseña contra su propia tabla `usuarios_go`
-- Emite un JWT firmado con clave propia (`vgmgo.jwt.secret`)
-- Expiración configurable (`vgmgo.jwt.expiration: 3600`)
+- VGM Core Geo valida usuario/contraseña contra su propia tabla `cuentas` + `usuarios_geo`
+- Emite un JWT firmado con clave propia (`vgmcoregeo.jwt.secret`)
+- Expiración configurable (`vgmcoregeo.jwt.expiration: 3600`)
 
 **Ventaja:** funciona de forma completamente independiente, sin depender de Auth0.
 
@@ -23,8 +23,8 @@ VGM Go genera sus propios tokens JWT internamente.
 
 Cuando haya necesidad (SSO, cliente enterprise, integración con VGM Core):
 
-- El backend pasa a ser **Resource Server**
-- Solo valida tokens emitidos por Auth0
+- El backend pasa a ser **Resource Server** (igual que VGM Core hoy)
+- Solo valida tokens emitidos por Auth0 (`vgm-core-dev.us.auth0.com`)
 - El cambio en código es mínimo: configuración en `application.yml`
 - Todo lo demás (filtros, servicios) queda igual
 
@@ -46,31 +46,47 @@ VGM Core Geo ya está creada como aplicación en Auth0 dentro del tenant de Maur
 
 ## Estructura del token JWT
 
+Siguiendo el patrón de VGM Core: el token lleva **solo el tenant** (`tenant_id`). La empresa y la sucursal se resuelven dinámicamente desde headers HTTP y base de datos — no van embebidas en el token.
+
 ### Etapa 1 (JWT propio)
 ```json
 {
   "sub": "usuario@empresa.com",
-  "https://vgmcoregeo.com/cliente_saas_id": 1,
-  "https://vgmcoregeo.com/empresa_id": 5,
-  "https://vgmcoregeo.com/sucursal_id": 3,
-  "https://vgmcoregeo.com/rol": "ADMIN",
+  "https://vgmcoregeo.com/tenant_id": 1,
   "exp": 1234567890
 }
 ```
 
 ### Etapa 2 (Auth0)
-Mismo formato de claims, emitidos por Auth0 a través de un Action Post Login igual al de VGM Core pero con namespace `https://vgmcoregeo.com`.
+Mismo claim `tenant_id`, emitido por Auth0 a través de un Action Post Login con namespace `https://vgmcoregeo.com`.
+
+---
+
+## Headers de contexto
+
+Igual que VGM Core, la empresa y la sucursal activa se resuelven por headers:
+
+| Header | Obligatorio | Descripción |
+|---|---|---|
+| `Authorization: Bearer <token>` | Sí | JWT del usuario |
+| `X-Empresa-Id` | Condicional | Obligatorio si el usuario tiene acceso a más de una empresa |
+| `X-Sucursal-Id` | Condicional | Obligatorio si el usuario tiene acceso a más de una sucursal |
+
+Si el usuario solo tiene una empresa/sucursal asignada, el header es opcional — VGM Core Geo la resuelve automáticamente.
 
 ---
 
 ## Flujo de autenticación
 
 ```
-1. Usuario abre VGM Go → no tiene sesión → pantalla de login
+1. Usuario abre VGM Core Geo → no tiene sesión → pantalla de login
 2. Ingresa usuario y contraseña
-3. POST /api/v1/auth/login → VGM Go valida y emite JWT
+3. POST /api/v1/auth/login → VGM Core Geo valida y emite JWT
 4. Frontend guarda el token EN MEMORIA (nunca en localStorage)
-5. Cada request envía: Authorization: Bearer <token>
+5. Cada request envía:
+   Authorization: Bearer <token>
+   X-Empresa-Id: <id>      (si aplica)
+   X-Sucursal-Id: <id>     (si aplica)
 6. TenantContextFilter intercepta, valida JWT, carga contexto
    (cliente_saas, empresa, sucursal)
 7. Controller procesa con contexto ya resuelto
@@ -80,35 +96,108 @@ Mismo formato de claims, emitidos por Auth0 a través de un Action Post Login ig
 
 ## Componentes de seguridad
 
-Copiados y adaptados del código de Mauricio (VGM Core):
+Copiados y adaptados del código de Mauricio (VGM Core). VGM Core Geo extiende el patrón agregando resolución de `id_sucursal`.
 
-| Componente | Origen | Cambio para VGM Go |
+| Componente | Origen | Cambio para VGM Core Geo |
 |---|---|---|
-| `TenantContextFilter` | VGM Core | Agregar resolución de `id_sucursal` |
-| `TenantConnectionPreparer` | VGM Core | Copiar sin cambios |
-| `TenantExceptions` | VGM Core | Copiar sin cambios |
+| `TenantContextFilter` | VGM Core | Agregar resolución de `id_sucursal` desde header `X-Sucursal-Id` |
+| `TenantConnectionPreparer` | VGM Core | Agregar `set_config('app.id_sucursal', valor)` |
+| `TenantExceptions` | VGM Core | Copiar sin cambios, agregar excepciones de sucursal |
 | `GlobalExceptionHandler` | VGM Core | Copiar sin cambios |
-| `TenantResolver` | VGM Core | Cambiar namespace a `https://vgmcoregeo.com` |
-| `SecurityConfig` | VGM Core | Etapa 1: generar JWT. Etapa 2: Resource Server |
+| `TenantResolver` | VGM Core | Cambiar namespace a `https://vgmcoregeo.com` y claim a `tenant_id` |
+| `SecurityConfig` | VGM Core | Etapa 1: emitir JWT propio. Etapa 2: Resource Server igual que VGM Core |
+
+### TenantContext de VGM Core Geo
+
+Extiende el de VGM Core agregando `idSucursal`:
+
+```kotlin
+data class DatosTenant(
+    val idClienteSaas: Long,
+    val idEmpresa: Long,
+    val idSucursal: Long,
+    val idUsuarioGeo: Long,
+    val email: String,
+    val sub: String,
+)
+```
 
 ---
 
-## Diferencia con VGM Core
+## Resolución del contexto (paso a paso)
 
-| | VGM Core | VGM Go |
+```
+1. Spring Security valida el JWT
+   - Etapa 1: valida firma con clave propia
+   - Etapa 2: valida contra Auth0 (issuer-uri + audience)
+
+2. TenantContextFilter (@Order(200)) corre después de Spring Security
+
+3. TenantResolver extrae del JWT:
+   - "https://vgmcoregeo.com/tenant_id" → idClienteSaas
+   - "sub" → subject del usuario
+
+4. Busca el usuario en BD (cuentas + usuarios_geo)
+   - Si no existe → 403 FORBIDDEN
+
+5. Resuelve empresa desde X-Empresa-Id:
+   - Si header presente → valida acceso
+   - Si una sola empresa → la usa automáticamente
+   - Si múltiples y sin header → 400 BAD REQUEST
+
+6. Resuelve sucursal desde X-Sucursal-Id:
+   - Igual que empresa, pero dentro de la empresa resuelta
+
+7. Carga rol desde usuarios_geo_sucursales (nunca desde el JWT)
+
+8. TenantContext.establecer(DatosTenant) → guarda en ThreadLocal
+
+9. TenantConnectionPreparer ejecuta set_config en PostgreSQL:
+   - set_config('app.id_cliente_saas', valor)
+   - set_config('app.id_empresa', valor)
+   - set_config('app.id_sucursal', valor)
+
+10. Controller ejecuta — contexto disponible vía TenantContext
+
+11. finally: TenantContext.limpiar()
+```
+
+---
+
+## Excepciones mapeadas a HTTP
+
+| Excepción | HTTP |
+|---|---|
+| `TenantNoResueltaException` | 401 UNAUTHORIZED |
+| `UsuarioNoEncontradoException` | 403 FORBIDDEN |
+| `EmpresaNoAsignadaException` | 403 FORBIDDEN |
+| `EmpresaInvalidaException` | 400 BAD REQUEST |
+| `AccesoEmpresaDenegadoException` | 403 FORBIDDEN |
+| `EmpresaNoSeleccionadaException` | 400 BAD REQUEST |
+| `SucursalNoAsignadaException` | 403 FORBIDDEN |
+| `SucursalNoSeleccionadaException` | 400 BAD REQUEST |
+
+---
+
+## Comparación con VGM Core
+
+| | VGM Core | VGM Core Geo |
 |---|---|---|
-| Niveles de tenancy | `clientes_saas → empresas → sucursales` | Igual — misma jerarquía |
+| Niveles de tenancy resueltos | `cliente_saas` + `empresa` | `cliente_saas` + `empresa` + `sucursal` |
 | Namespace JWT | `https://vgmcore.com` | `https://vgmcoregeo.com` |
+| Claim de tenant | `tenant_id` | `tenant_id` |
+| Rol en JWT | No — se carga de BD | No — se carga de BD |
 | Auth0 Application | VGM Core Web / Desktop | VGM Core Geo |
-| RLS | Obligatorio desde el inicio | A definir — por ahora filtro por campo |
 | IdP Etapa 1 | Auth0 desde el inicio | JWT propio |
 | IdP Etapa 2 | — | Auth0 (`vgm-core-dev.us.auth0.com`) |
+| Header empresa | `X-Empresa-Id` | `X-Empresa-Id` |
+| Header sucursal | No aplica | `X-Sucursal-Id` |
 
 ---
 
 ## Auth0 Action para Etapa 2
 
-Cuando se implemente Auth0, el Action Post Login para VGM Go sería:
+Cuando se implemente Auth0, el Action Post Login para VGM Core Geo sería:
 
 ```javascript
 exports.onExecutePostLogin = async (event, api) => {
@@ -122,15 +211,10 @@ exports.onExecutePostLogin = async (event, api) => {
     return;
   }
 
-  api.accessToken.setCustomClaim(`${NAMESPACE}/cliente_saas_id`, parseInt(tenantId, 10));
+  api.accessToken.setCustomClaim(`${NAMESPACE}/tenant_id`, parseInt(tenantId, 10));
 
   if (event.user.email) {
     api.accessToken.setCustomClaim(`${NAMESPACE}/email`, event.user.email);
-  }
-
-  const roles = event.authorization?.roles || [];
-  if (roles.length > 0) {
-    api.accessToken.setCustomClaim(`${NAMESPACE}/roles`, roles);
   }
 };
 ```

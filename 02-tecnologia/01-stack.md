@@ -1,7 +1,7 @@
 # Stack tecnológico
 
-**Versión:** 1.0
-**Fecha:** 2026-03-13
+**Versión:** 1.1
+**Fecha:** 2026-03-14
 **Estado:** Activo
 
 ---
@@ -10,19 +10,20 @@
 
 | Componente | Tecnología | Versión |
 |---|---|---|
-| Lenguaje | Kotlin | 2.1.x |
-| Framework | Spring Boot | 3.5.x |
+| Lenguaje | Kotlin | 2.1.10 |
+| Framework | Spring Boot | 3.5.3 |
+| JVM | Java | 21 |
 | Persistencia | JPA / Hibernate | — |
 | Migraciones BD | Flyway | — |
-| Seguridad | Spring Security (JWT) | — |
-| Documentación API | springdoc-openapi | 2.x |
+| Seguridad | Spring Security + OAuth2 Resource Server | — |
+| Caché | Caffeine | 3.1.8 |
+| Documentación API | springdoc-openapi | 2.8.4 |
 | Build | Gradle + libs.versions.toml | — |
-| Tests | Testcontainers | — |
+| Tests | Testcontainers | 1.20.4 |
 | CI | GitHub Actions | — |
 | Containers | Docker + Docker Compose | — |
 
-**Base de datos Etapa 1:** PostgreSQL 17 (propio, no compartido)
-**Base de datos Etapa 2 (futuro):** migración desde SQL Server si se requiere compatibilidad legacy
+**Base de datos:** PostgreSQL 17 (propia, no compartida con ningún otro producto)
 
 ---
 
@@ -47,7 +48,20 @@ El stack es intencionalmente idéntico al de VGM Core (desarrollado por Mauricio
 
 - Reutilizar convenciones, configuración de CI, Docker Compose
 - El equipo no tiene que aprender tecnologías nuevas
-- Componentes de seguridad (TenantContextFilter, GlobalExceptionHandler) se copian y adaptan directamente
+- Componentes de seguridad (TenantContextFilter, GlobalExceptionHandler, TenantConnectionPreparer) se copian y adaptan directamente
+
+---
+
+## Componentes copiados de VGM Core
+
+| Componente | Cambio para VGM Core Geo |
+|---|---|
+| `TenantContextFilter` | Agregar resolución de `id_sucursal` desde header `X-Sucursal-Id` |
+| `TenantConnectionPreparer` | Copiar sin cambios (agregar `set_config` para `id_sucursal`) |
+| `TenantExceptions` | Copiar sin cambios, agregar excepciones de sucursal |
+| `GlobalExceptionHandler` | Copiar sin cambios |
+| `TenantResolver` | Cambiar namespace a `https://vgmcoregeo.com` y claim a `tenant_id` |
+| `SecurityConfig` | Etapa 1: emitir JWT propio. Etapa 2: Resource Server igual que VGM Core |
 
 ---
 
@@ -56,6 +70,5 @@ El stack es intencionalmente idéntico al de VGM Core (desarrollado por Mauricio
 | Tecnología | Decisión |
 |---|---|
 | Google Maps | Reemplazado por OpenStreetMap (costo) |
-| Progress / OpenEdge | Descartado — sin ventaja técnica, costo de licencias, pool de talento limitado |
 | Microservicios | Monolito modular, igual que VGM Core |
-| RLS (Row Level Security) | No obligatorio en Etapa 1 — multi-tenancy por campo `id_empresa` |
+| RLS (Row Level Security) | A implementar en Etapa 2 — igual al patrón de Mauricio con `set_config` en PostgreSQL |

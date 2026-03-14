@@ -8,7 +8,7 @@
 
 ## Contexto
 
-Ultra GEO usa Google Maps, que tiene costos de licencia que aumentaron significativamente. Al rediseñar el sistema, hay que decidir qué proveedor de mapas usar.
+Ultra GEO usa Google Maps, que tiene costos de licencia que aumentaron significativamente. Al rediseñar el sistema como VGM Core Geo, hay que decidir qué proveedor de mapas usar.
 
 ## Decisión
 

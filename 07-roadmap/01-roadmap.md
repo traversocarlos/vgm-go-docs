@@ -1,20 +1,19 @@
 # Roadmap de implementación
 
-**Versión:** 1.0
-**Fecha:** 2026-03-13
+**Versión:** 1.1
+**Fecha:** 2026-03-14
 **Estado:** Activo
 
 ---
 
 ## Estado actual
 
-El proyecto está en fase de **diseño y definición**. La arquitectura está decidida. Todavía no se escribió código de VGM Go.
+El proyecto está en fase de **diseño y definición**. La arquitectura está decidida. Todavía no se escribió código de VGM Core Geo.
 
 ---
 
-## Pendiente urgente antes de escribir código
+## Pendiente antes de escribir código
 
-- [ ] **Reunión con Mauricio** — acordar namespace de JWT claims antes de implementar autenticación
 - [ ] **Contrato OpenAPI** — definir todos los endpoints antes de escribir código de negocio
 
 ---
@@ -36,7 +35,7 @@ Endpoints mínimos:
 - `GET /api/v1/zonas`
 
 ### Paso 2 — Repositorio backend
-Crear `vgm-go-backend` copiando la estructura de Mauricio:
+Crear `vgm-core-geo-backend` copiando la estructura de Mauricio:
 - Módulos: `seguridad`, `geo`, `administracion`
 - Configuración de CI (GitHub Actions)
 - Docker Compose con PostgreSQL
@@ -47,7 +46,7 @@ Incluir desde el inicio: `id_publico_core UUID NULL` en `empleados` y `puntos_ve
 
 ### Paso 4 — Módulo de seguridad
 Copiar y adaptar el código de Mauricio:
-- TenantContextFilter, TenantConnectionPreparer, TenantExceptions
+- TenantContextFilter (con resolución de sucursal), TenantConnectionPreparer, TenantExceptions
 - Login con JWT propio
 - Endpoint `/api/v1/sesion/yo`
 
@@ -74,7 +73,7 @@ Copiar y adaptar el código de Mauricio:
 - Notificaciones de inactividad
 - Dashboard con KPIs
 - Exportación Excel / CSV
-- Conexión con Auth0
+- Conexión con Auth0 (`vgm-core-dev.us.auth0.com`)
 - Integración con VGM Core (sincronización de empleados y puntos de venta)
 
 ---
@@ -84,5 +83,5 @@ Copiar y adaptar el código de Mauricio:
 | Repositorio | Contenido |
 |---|---|
 | `vgm-go-docs` | Esta documentación |
-| `vgm-go-backend` | Backend Kotlin / Spring Boot |
-| `vgm-go-web` | Frontend React / TypeScript |
+| `vgm-core-geo-backend` | Backend Kotlin / Spring Boot |
+| `vgm-core-geo-web` | Frontend React / TypeScript |

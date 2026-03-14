@@ -1,25 +1,25 @@
-# CONTEXT — VGM Go
+# CONTEXT — VGM Core Geo
 
 > Archivo de contexto para Claude Code y cualquier IA que trabaje en este proyecto.
 > Leer completo antes de hacer cualquier modificación.
 > Actualizar cada vez que se tome una decisión importante.
 
-**Última actualización:** 2026-03-13
+**Última actualización:** 2026-03-14
 
 ---
 
-## ¿Qué es VGM Go?
+## ¿Qué es VGM Core Geo?
 
 Sistema de geolocalización en tiempo real para empresas de distribución y ventas. Reemplaza **Ultra GEO** — sistema actual con crashes diarios, tecnología obsoleta (ASP.NET WebForms) y costos de licencia de Google Maps.
 
-VGM Go es un **producto autónomo** — base de datos propia, ciclo de release independiente, se puede vender sin VGM Core.
+VGM Core Geo es un **producto autónomo** — base de datos propia, ciclo de release independiente, se puede vender sin VGM Core.
 
 ---
 
 ## El equipo
 
 **VGM Sistemas** — software de gestión empresarial.
-- **Mauricio** — backend, autor de VGM Core
+- **Mauricio** — backend, autor de VGM Core (referencia arquitectónica directa)
 - **Gustavo** — equipo
 - **Lucas** — equipo
 
@@ -30,7 +30,7 @@ VGM Go es un **producto autónomo** — base de datos propia, ciclo de release i
 | Producto | Qué es | Estado |
 |---|---|---|
 | **VGM Core** | ERP completo (reingeniería del legacy VGMDIS) | Backend funcionando, por Mauricio |
-| **VGM Go** | Geolocalización en tiempo real | En diseño — este repositorio |
+| **VGM Core Geo** | Geolocalización en tiempo real | En diseño — este repositorio |
 | **VGM GEMA** | App móvil Android de preventa/distribución | Existe, envía posiciones GPS hoy |
 
 **Regla fundamental:** integración entre productos siempre por **API REST**. Nunca base de datos compartida.
@@ -46,32 +46,39 @@ Flujo GPS actual:
 Android GEMA → Tomcat → SQL Server VGMDIS
 ```
 
-Bridge VGM Go: lee `v_posiciones_nuevas` en VGMDIS → llama a `POST /api/v1/posiciones`. Cuando VGMDIS migre a VGM Core, solo cambia el bridge — VGM Go no se toca.
+Bridge VGM Core Geo: lee `v_posiciones_nuevas` en VGMDIS → llama a `POST /api/v1/posiciones`. Cuando VGMDIS migre a VGM Core, solo cambia el bridge — VGM Core Geo no se toca.
 
 ---
 
 ## Stack tecnológico
 
+Idéntico a VGM Core (Mauricio es la referencia).
+
 ### Backend
-- Kotlin 2.1 + Spring Boot 3.5
+- Kotlin **2.1.10** + Spring Boot **3.5.3** + Java **21**
 - JPA / Hibernate + Flyway
-- Spring Security (JWT propio Etapa 1, Auth0 Etapa 2)
-- springdoc-openapi 2.x
+- Spring Security + OAuth2 Resource Server
+- Caffeine Cache **3.1.8**
+- springdoc-openapi **2.8.4**
 - PostgreSQL 17 (base de datos propia)
 - Docker + Docker Compose + GitHub Actions CI
-- Tests con Testcontainers
+- Tests con Testcontainers **1.20.4**
 
 ### Frontend
 - React 18 + TypeScript 5 + Vite
 - Tailwind CSS + Shadcn/ui
 - Leaflet.js + OpenStreetMap (reemplaza Google Maps — sin costo)
 
-### Referencia directa
-El backend de VGM Core (Mauricio) es la referencia. Mismo stack, mismas convenciones. Componentes a copiar y adaptar:
-- `TenantContextFilter.kt`
-- `TenantConnectionPreparer.kt`
-- `TenantExceptions.kt`
-- `GlobalExceptionHandler.kt`
+### Componentes copiados de VGM Core y adaptados
+
+| Componente | Cambio para VGM Core Geo |
+|---|---|
+| `TenantContextFilter` | Agregar resolución de `id_sucursal` desde header `X-Sucursal-Id` |
+| `TenantConnectionPreparer` | Agregar `set_config('app.id_sucursal', valor)` |
+| `TenantExceptions` | Copiar sin cambios, agregar excepciones de sucursal |
+| `GlobalExceptionHandler` | Copiar sin cambios |
+| `TenantResolver` | Cambiar namespace a `https://vgmcoregeo.com`, claim `tenant_id` |
+| `SecurityConfig` | Etapa 1: emitir JWT propio. Etapa 2: Resource Server igual que VGM Core |
 
 ---
 
@@ -87,6 +94,8 @@ clientes_saas
 ```
 
 Mismos nombres de tablas y columnas que VGM Core.
+
+**Diferencia con VGM Core:** VGM Core resuelve `cliente_saas` + `empresa` en el TenantContext. VGM Core Geo **extiende** esto resolviendo también `sucursal` — porque la unidad operativa es la sucursal.
 
 **Ejemplo real:**
 ```
@@ -111,6 +120,12 @@ Ver detalle completo en `03-datos/01-modelo.md`
 - `nu_` número/medida
 - `sn_` boolean (sí/no)
 - `fe_` fecha
+- Toda tabla tiene `id_publico UUID` — se expone en APIs, nunca el ID interno
+
+**Modelo de usuarios (patrón de Mauricio):**
+- `cuentas` — identidad global (co_sub_oidc para Auth0 en Etapa 2)
+- `usuarios_geo` — membresía de cuenta en un tenant
+- `usuarios_geo_sucursales` — acceso a sucursales con rol (`ADMIN`, `OPERADOR`, `READONLY`)
 
 **Campos puente para integración futura:**
 - `empleados.id_publico_core UUID NULL`
@@ -122,26 +137,33 @@ Ver detalle completo en `03-datos/01-modelo.md`
 
 Ver detalle completo en `04-seguridad/01-autenticacion.md`
 
-### Namespace JWT definido
+### Patrón idéntico a VGM Core
+
+Siguiendo exactamente el patrón de Mauricio:
+- El JWT lleva **solo** `tenant_id` — empresa, sucursal y rol se resuelven dinámicamente
+- Empresa se resuelve desde header `X-Empresa-Id`
+- Sucursal se resuelve desde header `X-Sucursal-Id` (extensión de VGM Core Geo)
+- Rol se carga desde `usuarios_geo_sucursales` en BD
+
+### Namespace JWT
 ```
 https://vgmcoregeo.com
 ```
 Diferente al de VGM Core (`https://vgmcore.com`) — productos independientes.
 
-### Claims del token
+### Token JWT
 ```json
 {
-  "https://vgmcoregeo.com/cliente_saas_id": 1,
-  "https://vgmcoregeo.com/empresa_id": 5,
-  "https://vgmcoregeo.com/sucursal_id": 3,
-  "https://vgmcoregeo.com/rol": "ADMIN"
+  "sub": "usuario@empresa.com",
+  "https://vgmcoregeo.com/tenant_id": 1,
+  "exp": 1234567890
 }
 ```
 
 ### Auth0 — ya configurado por Mauricio
 - Tenant: `vgm-core-dev.us.auth0.com`
 - Aplicación: `VGM Core Geo` (Single Page Application)
-- Etapa 1: JWT propio. Etapa 2: conectar Auth0.
+- Etapa 1: JWT propio. Etapa 2: conectar Auth0 (solo cambia `application.yml`)
 
 ---
 
@@ -170,7 +192,10 @@ Ver detalle en `05-integraciones/01-fuentes-datos.md`
 
 - Jerarquía `clientes_saas → empresas → sucursales` idéntica a VGM Core
 - Mismos nombres de tablas y columnas que VGM Core
+- Patrón de seguridad idéntico a VGM Core (tenant_id en JWT, empresa/sucursal por headers, rol desde BD)
 - Namespace JWT: `https://vgmcoregeo.com`
+- Claim de tenant: `tenant_id` (igual que VGM Core)
+- Auth0: `vgm-core-dev.us.auth0.com`, aplicación `VGM Core Geo`
 - Integración entre productos siempre por API REST
 - OpenStreetMap reemplaza Google Maps
 
@@ -179,14 +204,13 @@ Ver detalle en `05-integraciones/01-fuentes-datos.md`
 ## ⚠️ Pendiente — no implementar hasta resolver
 
 - [ ] Definir contrato OpenAPI antes de escribir código de negocio
-- [ ] Coordinar con Mauricio el Auth0 Action para Etapa 2
 
 ---
 
 ## Próximos pasos en orden
 
 1. Definir contrato OpenAPI (`01-arquitectura/02-openapi.yaml`)
-2. Crear repositorio `vgm-go-backend` copiando estructura de VGM Core
+2. Crear repositorio `vgm-core-geo-backend` copiando estructura de VGM Core
 3. Migraciones Flyway iniciales (incluir `id_publico_core UUID NULL` desde el inicio)
 4. Módulo de seguridad (copiar y adaptar código de Mauricio)
 5. Módulo de posiciones (`POST /api/v1/posiciones`)
@@ -200,8 +224,8 @@ Ver detalle en `05-integraciones/01-fuentes-datos.md`
 | Repositorio | Contenido |
 |---|---|
 | `vgm-go-docs` | Esta documentación |
-| `vgm-go-backend` | Backend Kotlin / Spring Boot (a crear) |
-| `vgm-go-web` | Frontend React / TypeScript (a crear) |
+| `vgm-core-geo-backend` | Backend Kotlin / Spring Boot (a crear) |
+| `vgm-core-geo-web` | Frontend React / TypeScript (a crear) |
 | `vgm-core-docs` | Documentación VGM Core — referencia arquitectónica |
 
 ---

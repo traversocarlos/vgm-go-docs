@@ -1,14 +1,14 @@
 # Modelo de datos
 
-**Versión:** 2.0
-**Fecha:** 2026-03-13
+**Versión:** 2.1
+**Fecha:** 2026-03-14
 **Estado:** Activo
 
 ---
 
 ## Principios
 
-VGM Go tiene su **propia base de datos PostgreSQL**. No comparte datos con VGM Core ni con ningún otro sistema.
+VGM Core Geo tiene su **propia base de datos PostgreSQL**. No comparte datos con VGM Core ni con ningún otro sistema.
 
 La jerarquía de tenancy es **idéntica a VGM Core** — mismos nombres de tablas y columnas. Esto facilita que el equipo lea código de ambos productos sin fricción y simplifica la integración futura.
 
@@ -17,11 +17,11 @@ La jerarquía de tenancy es **idéntica a VGM Core** — mismos nombres de tabla
 ## Jerarquía de tenancy
 
 ```
-clientes_saas (tenant — el cliente que contrató VGM Go)
+clientes_saas (tenant — el cliente que contrató VGM Core Geo)
   └── empresas (las empresas del cliente)
         └── sucursales (las sucursales de cada empresa)
-              └── empleados (RRHH, vendedores, repartidores)
-              └── puntos_venta
+              ├── empleados (vendedores, repartidores)
+              ├── puntos_venta
               └── zonas
 ```
 
@@ -85,6 +85,55 @@ CREATE TABLE sucursales (
 
 ---
 
+## Tablas de seguridad
+
+Siguen el patrón de VGM Core: identidad global separada de la membresía en el tenant.
+
+### `cuentas`
+Identidad global. Un usuario puede tener cuentas en múltiples tenants.
+```sql
+CREATE TABLE cuentas (
+    id_cuenta           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id_publico          uuid NOT NULL DEFAULT gen_random_uuid(),
+    de_email            varchar(255) NOT NULL,
+    de_nombre           varchar(200),
+    co_sub_oidc         varchar(255),          -- subject OIDC (Auth0 en Etapa 2)
+    sn_activo           boolean NOT NULL DEFAULT true,
+    fe_alta             timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT uq_cuenta_email UNIQUE (de_email),
+    CONSTRAINT uq_cuenta_publico UNIQUE (id_publico)
+);
+```
+
+### `usuarios_geo`
+Membresía de una cuenta dentro de un tenant (cliente_saas).
+```sql
+CREATE TABLE usuarios_geo (
+    id_usuario_geo      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    id_cuenta           bigint NOT NULL REFERENCES cuentas(id_cuenta),
+    id_cliente_saas     bigint NOT NULL REFERENCES clientes_saas(id_cliente_saas),
+    sn_activo           boolean NOT NULL DEFAULT true,
+    fe_alta             timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT uq_usuario_geo_cuenta_tenant UNIQUE (id_cuenta, id_cliente_saas)
+);
+```
+
+### `usuarios_geo_sucursales`
+Acceso de un usuario a una sucursal específica con su rol.
+```sql
+CREATE TABLE usuarios_geo_sucursales (
+    id_usuario_geo      bigint NOT NULL REFERENCES usuarios_geo(id_usuario_geo),
+    id_cliente_saas     bigint NOT NULL REFERENCES clientes_saas(id_cliente_saas),
+    id_empresa          bigint NOT NULL REFERENCES empresas(id_empresa),
+    id_sucursal         bigint NOT NULL REFERENCES sucursales(id_sucursal),
+    co_rol              varchar(30) NOT NULL,  -- 'ADMIN', 'OPERADOR', 'READONLY'
+    sn_activo           boolean NOT NULL DEFAULT true,
+    PRIMARY KEY (id_usuario_geo, id_sucursal)
+);
+```
+
+---
+
 ## Tablas operativas
 
 ### `empleados`
@@ -101,7 +150,8 @@ CREATE TABLE empleados (
     sn_registra_coords  boolean NOT NULL DEFAULT true,
     sn_activo           boolean NOT NULL DEFAULT true,
     fe_alta             timestamptz NOT NULL DEFAULT now(),
-    id_publico_core     uuid NULL  -- puente para integración futura con VGM Core
+    id_publico_core     uuid NULL,             -- puente para integración futura con VGM Core
+    CONSTRAINT uq_empleado_publico UNIQUE (id_publico)
 );
 ```
 
@@ -137,7 +187,8 @@ CREATE TABLE puntos_venta (
     nu_longitud         numeric(10,7),
     sn_activo           boolean NOT NULL DEFAULT true,
     fe_alta             timestamptz NOT NULL DEFAULT now(),
-    id_publico_core     uuid NULL  -- puente para integración futura con VGM Core
+    id_publico_core     uuid NULL,             -- puente para integración futura con VGM Core
+    CONSTRAINT uq_punto_venta_publico UNIQUE (id_publico)
 );
 ```
 
@@ -156,31 +207,6 @@ CREATE TABLE zonas (
 );
 ```
 
-### `usuarios_go` y `usuarios_go_sucursales`
-```sql
-CREATE TABLE usuarios_go (
-    id_usuario          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_publico          uuid NOT NULL DEFAULT gen_random_uuid(),
-    id_cliente_saas     bigint NOT NULL REFERENCES clientes_saas(id_cliente_saas),
-    de_email            varchar(255) NOT NULL,
-    de_nombre           varchar(200),
-    co_sub_oidc         varchar(255),
-    sn_activo           boolean NOT NULL DEFAULT true,
-    fe_alta             timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT uq_usuario_email_tenant UNIQUE (id_cliente_saas, de_email)
-);
-
-CREATE TABLE usuarios_go_sucursales (
-    id_usuario          bigint NOT NULL REFERENCES usuarios_go(id_usuario),
-    id_cliente_saas     bigint NOT NULL REFERENCES clientes_saas(id_cliente_saas),
-    id_empresa          bigint NOT NULL REFERENCES empresas(id_empresa),
-    id_sucursal         bigint NOT NULL REFERENCES sucursales(id_sucursal),
-    co_rol              varchar(30) NOT NULL,  -- 'ADMIN', 'OPERADOR', 'READONLY'
-    sn_activo           boolean NOT NULL DEFAULT true,
-    PRIMARY KEY (id_usuario, id_sucursal)
-);
-```
-
 ---
 
 ## Convenciones de nombres
@@ -196,10 +222,12 @@ Idénticas a VGM Core:
 | `sn_` | Sí/No (boolean) | `sn_activo` |
 | `fe_` | Fecha | `fe_alta` |
 
+Toda tabla tiene `id_publico UUID` para exponer en APIs (nunca se expone el ID interno).
+
 ---
 
 ## Integración entre productos
 
-VGM Go, VGM Core y VGM GEMA se comunican **únicamente por API REST**. Nunca por base de datos compartida.
+VGM Core Geo, VGM Core y VGM GEMA se comunican **únicamente por API REST**. Nunca por base de datos compartida.
 
 Los campos `id_publico_core` en `empleados` y `puntos_venta` son el puente técnico para sincronización futura entre productos.
