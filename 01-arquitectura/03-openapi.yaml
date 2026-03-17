@@ -1,0 +1,1315 @@
+openapi: 3.0.3
+
+info:
+  title: VGM Core Geo API
+  description: >
+    API de geolocalización en tiempo real para empresas de distribución y ventas.
+    Reemplaza Ultra GEO (ASP.NET + Google Maps).
+
+
+    Expone dos tipos de contrato:
+    - **Ingesta GPS** (API Key): recibe posiciones desde fuentes externas (app móvil, bridge legado, trackers hardware, sistemas externos).
+    - **Frontend / administración** (JWT Bearer): consulta de posiciones, gestión de empleados, puntos de venta y zonas.
+
+
+    Los endpoints JWT requieren además los headers `X-Empresa-Id` y `X-Sucursal-Id` para determinar el contexto de multi-tenancy.
+  version: 1.0.0
+  contact:
+    name: VGM
+    email: desarrollo@vgm.com.ar
+
+servers:
+  - url: http://localhost:8080
+    description: Desarrollo local
+
+security: []
+
+tags:
+  - name: Autenticación
+    description: Obtención de JWT
+  - name: Sesión
+    description: Datos del usuario autenticado
+  - name: Ingesta GPS
+    description: Recepción de posiciones desde fuentes externas (API Key)
+  - name: Posiciones
+    description: Consulta de posiciones actuales e historial (JWT)
+  - name: Empleados
+    description: ABM de empleados (JWT)
+  - name: Puntos de venta
+    description: ABM de puntos de venta (JWT)
+  - name: Zonas
+    description: ABM de zonas geográficas (JWT)
+
+paths:
+
+  # ─── Autenticación ────────────────────────────────────────────────────────────
+
+  /api/v1/auth/login:
+    post:
+      tags: [Autenticación]
+      summary: Obtener JWT
+      description: Autentica al usuario con email y password y devuelve un token JWT.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Autenticación exitosa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Credenciales inválidas
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: CREDENCIALES_INVALIDAS
+                mensaje: Email o password incorrectos
+                correlationId: a1b2c3d4-0000-0000-0000-000000000001
+                timestamp: '2026-03-17T10:00:00Z'
+
+  # ─── Sesión ───────────────────────────────────────────────────────────────────
+
+  /api/v1/sesion/yo:
+    get:
+      tags: [Sesión]
+      summary: Datos del usuario autenticado
+      description: Devuelve el usuario autenticado con sus empresas y sucursales disponibles.
+      operationId: getSesion
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Sesión activa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SesionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ─── Ingesta GPS ──────────────────────────────────────────────────────────────
+
+  /api/v1/posiciones:
+    post:
+      tags: [Ingesta GPS]
+      summary: Registrar posición GPS
+      description: >
+        Recibe una posición GPS desde cualquier fuente externa.
+        Se puede identificar al empleado por `idEmpleado` (UUID) o por `coEmpleado` (código funcional).
+        Al menos uno de los dos debe estar presente.
+
+        El Bridge VGMDIS puede enviar directamente el `id_legajo` en el campo `coEmpleado`
+        sin necesidad de hacer un lookup previo, ya que el mapeo `co_empleado = id_legajo.toString()`
+        se resuelve internamente.
+      operationId: registrarPosicion
+      security:
+        - ApiKeyAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PosicionIngestaRequest'
+      responses:
+        '201':
+          description: Posición registrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosicionIngestaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Empleado no encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: EMPLEADO_NO_ENCONTRADO
+                mensaje: No se encontró el empleado con coEmpleado 9999
+                correlationId: a1b2c3d4-0000-0000-0000-000000000002
+                timestamp: '2026-03-17T09:45:01Z'
+
+  # ─── Posiciones (consulta) ────────────────────────────────────────────────────
+
+  /api/v1/posiciones/actuales:
+    get:
+      tags: [Posiciones]
+      summary: Posiciones actuales de todos los empleados
+      description: >
+        Devuelve la última posición conocida de cada empleado activo en la sucursal
+        indicada por el header `X-Sucursal-Id`.
+      operationId: getPosicionesActuales
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+      responses:
+        '200':
+          description: Listado de últimas posiciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PosicionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/posiciones/actuales/{idPublicoEmpleado}:
+    get:
+      tags: [Posiciones]
+      summary: Posición actual de un empleado
+      description: Devuelve la última posición conocida de un empleado específico.
+      operationId: getPosicionActualEmpleado
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoEmpleadoPath'
+      responses:
+        '200':
+          description: Última posición del empleado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PosicionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/posiciones/historial/{idPublicoEmpleado}:
+    get:
+      tags: [Posiciones]
+      summary: Historial de posiciones de un empleado
+      description: >
+        Devuelve el historial de posiciones de un empleado con filtros opcionales.
+
+        Se puede filtrar por día completo usando `fecha` (YYYY-MM-DD),
+        o por rango usando `desde` y `hasta` (ISO 8601 datetime).
+        `fecha` y `desde`/`hasta` son mutuamente excluyentes; si se envía `fecha`,
+        los otros dos parámetros se ignoran.
+      operationId: getHistorialPosiciones
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoEmpleadoPath'
+        - name: fecha
+          in: query
+          description: Filtra por día completo (YYYY-MM-DD). Mutuamente excluyente con `desde`/`hasta`.
+          schema:
+            type: string
+            format: date
+            example: '2026-03-17'
+        - name: desde
+          in: query
+          description: Inicio del rango de fecha/hora (ISO 8601 con timezone).
+          schema:
+            type: string
+            format: date-time
+            example: '2026-03-17T08:00:00Z'
+        - name: hasta
+          in: query
+          description: Fin del rango de fecha/hora (ISO 8601 con timezone).
+          schema:
+            type: string
+            format: date-time
+            example: '2026-03-17T18:00:00Z'
+        - name: tipoOperacion
+          in: query
+          description: Filtra por tipo de operación.
+          schema:
+            $ref: '#/components/schemas/TipoOperacion'
+      responses:
+        '200':
+          description: Historial de posiciones
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PosicionHistorialItem'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─── Empleados ────────────────────────────────────────────────────────────────
+
+  /api/v1/empleados:
+    get:
+      tags: [Empleados]
+      summary: Listado paginado de empleados
+      description: Devuelve empleados de la sucursal activa con filtros opcionales y paginación.
+      operationId: getEmpleados
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - name: activo
+          in: query
+          description: Filtra por estado activo/inactivo.
+          schema:
+            type: boolean
+            example: true
+        - name: tipo
+          in: query
+          description: Filtra por tipo de empleado.
+          schema:
+            $ref: '#/components/schemas/TipoEmpleado'
+        - name: pagina
+          in: query
+          description: Número de página (base 0).
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: tamanio
+          in: query
+          description: Cantidad de elementos por página.
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Página de empleados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaEmpleados'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Empleados]
+      summary: Crear empleado
+      description: Crea un nuevo empleado en la sucursal activa.
+      operationId: crearEmpleado
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmpleadoRequest'
+      responses:
+        '201':
+          description: Empleado creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpleadoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Código funcional duplicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                codigo: CO_EMPLEADO_DUPLICADO
+                mensaje: Ya existe un empleado con coEmpleado 1042 en esta sucursal
+                correlationId: a1b2c3d4-0000-0000-0000-000000000003
+                timestamp: '2026-03-17T10:00:00Z'
+
+  /api/v1/empleados/{idPublico}:
+    get:
+      tags: [Empleados]
+      summary: Detalle de un empleado
+      operationId: getEmpleado
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoPath'
+      responses:
+        '200':
+          description: Empleado encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpleadoResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Empleados]
+      summary: Actualizar empleado
+      operationId: actualizarEmpleado
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmpleadoRequest'
+      responses:
+        '200':
+          description: Empleado actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmpleadoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Empleados]
+      summary: Desactivar empleado (soft delete)
+      description: Marca el empleado como inactivo (`sn_activo = false`). No elimina el registro.
+      operationId: eliminarEmpleado
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoPath'
+      responses:
+        '204':
+          description: Empleado desactivado
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─── Puntos de venta ──────────────────────────────────────────────────────────
+
+  /api/v1/puntos-venta:
+    get:
+      tags: [Puntos de venta]
+      summary: Listado paginado de puntos de venta
+      operationId: getPuntosVenta
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - name: pagina
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+        - name: tamanio
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Página de puntos de venta
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginaPuntosVenta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Puntos de venta]
+      summary: Crear punto de venta
+      operationId: crearPuntoVenta
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PuntoVentaRequest'
+      responses:
+        '201':
+          description: Punto de venta creado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PuntoVentaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/puntos-venta/{idPublico}:
+    get:
+      tags: [Puntos de venta]
+      summary: Detalle de un punto de venta
+      operationId: getPuntoVenta
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoPath'
+      responses:
+        '200':
+          description: Punto de venta encontrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PuntoVentaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Puntos de venta]
+      summary: Actualizar punto de venta
+      operationId: actualizarPuntoVenta
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PuntoVentaRequest'
+      responses:
+        '200':
+          description: Punto de venta actualizado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PuntoVentaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Puntos de venta]
+      summary: Eliminar punto de venta
+      operationId: eliminarPuntoVenta
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdPublicoPath'
+      responses:
+        '204':
+          description: Punto de venta eliminado
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ─── Zonas ────────────────────────────────────────────────────────────────────
+
+  /api/v1/zonas:
+    get:
+      tags: [Zonas]
+      summary: Listado de zonas
+      operationId: getZonas
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+      responses:
+        '200':
+          description: Listado de zonas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ZonaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Zonas]
+      summary: Crear zona
+      description: Crea una zona geográfica con polígono en formato GeoJSON.
+      operationId: crearZona
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZonaRequest'
+      responses:
+        '201':
+          description: Zona creada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZonaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/zonas/{id}:
+    get:
+      tags: [Zonas]
+      summary: Detalle de una zona
+      operationId: getZona
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdIntPath'
+      responses:
+        '200':
+          description: Zona encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZonaResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Zonas]
+      summary: Actualizar zona
+      operationId: actualizarZona
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdIntPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ZonaRequest'
+      responses:
+        '200':
+          description: Zona actualizada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ZonaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Zonas]
+      summary: Eliminar zona
+      operationId: eliminarZona
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/XEmpresaId'
+        - $ref: '#/components/parameters/XSucursalId'
+        - $ref: '#/components/parameters/IdIntPath'
+      responses:
+        '204':
+          description: Zona eliminada
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+# ─── Components ───────────────────────────────────────────────────────────────
+
+components:
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: >
+        API Key asignada a la fuente de datos GPS (app móvil, bridge VGMDIS, tracker hardware, etc.).
+        Se usa exclusivamente en endpoints de ingesta.
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >
+        JWT obtenido desde `POST /api/v1/auth/login`.
+        Debe acompañarse con los headers `X-Empresa-Id` y `X-Sucursal-Id`.
+
+  parameters:
+    XEmpresaId:
+      name: X-Empresa-Id
+      in: header
+      required: true
+      description: ID de la empresa activa en la sesión.
+      schema:
+        type: integer
+        example: 7
+
+    XSucursalId:
+      name: X-Sucursal-Id
+      in: header
+      required: true
+      description: ID de la sucursal activa en la sesión.
+      schema:
+        type: integer
+        example: 3
+
+    IdPublicoPath:
+      name: idPublico
+      in: path
+      required: true
+      description: UUID público del recurso.
+      schema:
+        type: string
+        format: uuid
+        example: f7e6d5c4-b3a2-1098-7654-321098fedcba
+
+    IdPublicoEmpleadoPath:
+      name: idPublicoEmpleado
+      in: path
+      required: true
+      description: UUID público del empleado.
+      schema:
+        type: string
+        format: uuid
+        example: f7e6d5c4-b3a2-1098-7654-321098fedcba
+
+    IdIntPath:
+      name: id
+      in: path
+      required: true
+      description: ID entero del recurso.
+      schema:
+        type: integer
+        example: 12
+
+  responses:
+    BadRequest:
+      description: Payload inválido o parámetros faltantes
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            codigo: PAYLOAD_INVALIDO
+            mensaje: El campo latitud es requerido
+            correlationId: a1b2c3d4-0000-0000-0000-000000000004
+            timestamp: '2026-03-17T10:00:00Z'
+
+    Unauthorized:
+      description: Token JWT ausente o inválido, o API Key inválida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            codigo: NO_AUTENTICADO
+            mensaje: Token JWT ausente o inválido
+            correlationId: a1b2c3d4-0000-0000-0000-000000000005
+            timestamp: '2026-03-17T10:00:00Z'
+
+    Forbidden:
+      description: El usuario no tiene acceso al recurso con la empresa/sucursal indicada
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            codigo: ACCESO_DENEGADO
+            mensaje: El usuario no tiene acceso a la sucursal indicada
+            correlationId: a1b2c3d4-0000-0000-0000-000000000006
+            timestamp: '2026-03-17T10:00:00Z'
+
+    NotFound:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            codigo: RECURSO_NO_ENCONTRADO
+            mensaje: No se encontró el recurso solicitado
+            correlationId: a1b2c3d4-0000-0000-0000-000000000007
+            timestamp: '2026-03-17T10:00:00Z'
+
+  schemas:
+
+    # ── Enums ────────────────────────────────────────────────────────────────────
+
+    TipoOperacion:
+      type: string
+      description: Tipo de operación registrada en el momento de la posición GPS (heredado de VGMDIS).
+      enum: [VENTA, RECIBO, ENVIO_PERIODICO, NO_ATENCION]
+      example: VENTA
+
+    TipoEmpleado:
+      type: string
+      description: Rol funcional del empleado.
+      enum: [VENDEDOR, REPARTIDOR, SUPERVISOR]
+      example: VENDEDOR
+
+    # ── Autenticación ─────────────────────────────────────────────────────────────
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          description: Email del usuario.
+          example: gustavo@vgm.com.ar
+        password:
+          type: string
+          format: password
+          description: Password del usuario.
+          example: '********'
+
+    LoginResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT para usar en los endpoints de frontend/admin.
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        expira:
+          type: string
+          format: date-time
+          description: Fecha y hora de expiración del token (ISO 8601 UTC).
+          example: '2026-03-18T10:00:00Z'
+
+    # ── Sesión ────────────────────────────────────────────────────────────────────
+
+    SesionResponse:
+      type: object
+      properties:
+        idPublico:
+          type: string
+          format: uuid
+          description: UUID público del usuario.
+          example: a1b2c3d4-e5f6-7890-abcd-ef1234567890
+        nombre:
+          type: string
+          description: Nombre completo del usuario.
+          example: Gustavo Rodríguez
+        email:
+          type: string
+          format: email
+          example: gustavo@vgm.com.ar
+        empresas:
+          type: array
+          description: Empresas a las que tiene acceso el usuario.
+          items:
+            $ref: '#/components/schemas/EmpresaSesion'
+
+    EmpresaSesion:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID de la empresa.
+          example: 7
+        descripcion:
+          type: string
+          description: Nombre o descripción de la empresa.
+          example: Distribuidora Sur S.A.
+        sucursales:
+          type: array
+          description: Sucursales disponibles dentro de esta empresa.
+          items:
+            $ref: '#/components/schemas/SucursalSesion'
+
+    SucursalSesion:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID de la sucursal.
+          example: 3
+        descripcion:
+          type: string
+          description: Nombre o descripción de la sucursal.
+          example: Casa Central
+
+    # ── Ingesta GPS ───────────────────────────────────────────────────────────────
+
+    PosicionIngestaRequest:
+      type: object
+      description: >
+        Payload de ingesta de posición GPS.
+        Se debe proveer `idEmpleado` (UUID) O `coEmpleado` (código funcional). Al menos uno es requerido.
+        El Bridge VGMDIS puede enviar el `id_legajo` directamente como `coEmpleado`
+        (mapeo: `co_empleado = id_legajo.toString()`).
+      required: [latitud, longitud, fechaPosicion]
+      properties:
+        idEmpleado:
+          type: string
+          format: uuid
+          description: UUID público del empleado en VGM Core Geo. Requerido si no se envía `coEmpleado`.
+          example: f7e6d5c4-b3a2-1098-7654-321098fedcba
+        coEmpleado:
+          type: string
+          maxLength: 50
+          description: >
+            Código funcional del empleado. Requerido si no se envía `idEmpleado`.
+            El Bridge VGMDIS puede enviar aquí el `id_legajo` directamente.
+          example: '1042'
+        latitud:
+          type: number
+          format: double
+          description: Latitud en WGS84.
+          example: -34.603722
+        longitud:
+          type: number
+          format: double
+          description: Longitud en WGS84.
+          example: -58.381592
+        fechaPosicion:
+          type: string
+          format: date-time
+          description: Timestamp del momento de la posición (ISO 8601 con timezone).
+          example: '2026-03-17T09:45:00Z'
+        precision:
+          type: number
+          format: double
+          description: Precisión GPS en metros.
+          example: 8.5
+        velocidad:
+          type: number
+          format: double
+          description: Velocidad en km/h.
+          example: 45.2
+        altitud:
+          type: number
+          format: double
+          description: Altitud en metros sobre el nivel del mar.
+          example: 25.0
+        tipoOperacion:
+          $ref: '#/components/schemas/TipoOperacion'
+      example:
+        coEmpleado: '1042'
+        latitud: -34.603722
+        longitud: -58.381592
+        fechaPosicion: '2026-03-17T09:45:00Z'
+        precision: 8.5
+        velocidad: 45.2
+        altitud: 25.0
+        tipoOperacion: VENTA
+
+    PosicionIngestaResponse:
+      type: object
+      properties:
+        idPosicion:
+          type: string
+          format: uuid
+          description: UUID asignado a la posición registrada.
+          example: cc3d4e5f-6a7b-8c9d-0e1f-2a3b4c5d6e7f
+        fechaRegistro:
+          type: string
+          format: date-time
+          description: Momento en que el servidor registró la posición.
+          example: '2026-03-17T09:45:01Z'
+
+    # ── Posiciones (consulta) ─────────────────────────────────────────────────────
+
+    PosicionResponse:
+      type: object
+      description: Última posición conocida de un empleado.
+      properties:
+        idEmpleado:
+          type: string
+          format: uuid
+          description: UUID público del empleado.
+          example: f7e6d5c4-b3a2-1098-7654-321098fedcba
+        nombreEmpleado:
+          type: string
+          description: Nombre completo del empleado.
+          example: Juan Pérez
+        tipoEmpleado:
+          $ref: '#/components/schemas/TipoEmpleado'
+        latitud:
+          type: number
+          format: double
+          example: -34.603722
+        longitud:
+          type: number
+          format: double
+          example: -58.381592
+        fechaPosicion:
+          type: string
+          format: date-time
+          example: '2026-03-17T09:45:00Z'
+        precision:
+          type: number
+          format: double
+          example: 8.5
+        velocidad:
+          type: number
+          format: double
+          example: 45.2
+        altitud:
+          type: number
+          format: double
+          example: 25.0
+        tipoOperacion:
+          $ref: '#/components/schemas/TipoOperacion'
+        minutosDesdeUltimaPosicion:
+          type: integer
+          description: Minutos transcurridos desde la última posición recibida.
+          example: 3
+
+    PosicionHistorialItem:
+      type: object
+      description: Un punto del historial de posiciones de un empleado.
+      properties:
+        latitud:
+          type: number
+          format: double
+          example: -34.603722
+        longitud:
+          type: number
+          format: double
+          example: -58.381592
+        fechaPosicion:
+          type: string
+          format: date-time
+          example: '2026-03-17T09:45:00Z'
+        precision:
+          type: number
+          format: double
+          example: 8.5
+        velocidad:
+          type: number
+          format: double
+          example: 45.2
+        altitud:
+          type: number
+          format: double
+          example: 25.0
+        tipoOperacion:
+          $ref: '#/components/schemas/TipoOperacion'
+
+    # ── Empleados ─────────────────────────────────────────────────────────────────
+
+    EmpleadoRequest:
+      type: object
+      required: [coEmpleado, nombre, tipo]
+      properties:
+        coEmpleado:
+          type: string
+          maxLength: 50
+          description: >
+            Código funcional del empleado. Para empleados importados de VGMDIS,
+            este valor es el `id_legajo` convertido a string.
+          example: '1042'
+        nombre:
+          type: string
+          maxLength: 200
+          description: Nombre completo del empleado.
+          example: Juan Pérez
+        tipo:
+          $ref: '#/components/schemas/TipoEmpleado'
+        snActivo:
+          type: boolean
+          description: Estado activo del empleado. Por defecto `true` en la creación.
+          default: true
+          example: true
+
+    EmpleadoResponse:
+      type: object
+      properties:
+        idPublico:
+          type: string
+          format: uuid
+          description: UUID público del empleado. Se usa en todas las rutas de la API.
+          example: f7e6d5c4-b3a2-1098-7654-321098fedcba
+        coEmpleado:
+          type: string
+          description: Código funcional del empleado.
+          example: '1042'
+        nombre:
+          type: string
+          example: Juan Pérez
+        tipo:
+          $ref: '#/components/schemas/TipoEmpleado'
+        snActivo:
+          type: boolean
+          example: true
+
+    PaginaEmpleados:
+      allOf:
+        - $ref: '#/components/schemas/PaginaResponse'
+        - type: object
+          properties:
+            contenido:
+              type: array
+              items:
+                $ref: '#/components/schemas/EmpleadoResponse'
+
+    # ── Puntos de venta ───────────────────────────────────────────────────────────
+
+    PuntoVentaRequest:
+      type: object
+      required: [coPuntoVenta, descripcion, latitud, longitud]
+      properties:
+        coPuntoVenta:
+          type: string
+          maxLength: 50
+          description: Código funcional del punto de venta.
+          example: PV-0041
+        descripcion:
+          type: string
+          maxLength: 200
+          description: Nombre o descripción del punto de venta.
+          example: Supermercado El Sol
+        latitud:
+          type: number
+          format: double
+          description: Latitud WGS84 del punto de venta.
+          example: -34.615000
+        longitud:
+          type: number
+          format: double
+          description: Longitud WGS84 del punto de venta.
+          example: -58.400000
+        direccion:
+          type: string
+          maxLength: 300
+          description: Dirección postal (opcional).
+          example: Av. San Martín 1234, Buenos Aires
+
+    PuntoVentaResponse:
+      type: object
+      properties:
+        idPublico:
+          type: string
+          format: uuid
+          description: UUID público del punto de venta.
+          example: b9c8d7e6-f5a4-3b2c-1d0e-9f8a7b6c5d4e
+        coPuntoVenta:
+          type: string
+          example: PV-0041
+        descripcion:
+          type: string
+          example: Supermercado El Sol
+        latitud:
+          type: number
+          format: double
+          example: -34.615000
+        longitud:
+          type: number
+          format: double
+          example: -58.400000
+        direccion:
+          type: string
+          example: Av. San Martín 1234, Buenos Aires
+
+    PaginaPuntosVenta:
+      allOf:
+        - $ref: '#/components/schemas/PaginaResponse'
+        - type: object
+          properties:
+            contenido:
+              type: array
+              items:
+                $ref: '#/components/schemas/PuntoVentaResponse'
+
+    # ── Zonas ─────────────────────────────────────────────────────────────────────
+
+    GeoJsonPolygon:
+      type: object
+      description: Polígono en formato GeoJSON (RFC 7946). El primer y último punto deben coincidir para cerrar el polígono.
+      required: [type, coordinates]
+      properties:
+        type:
+          type: string
+          enum: [Polygon]
+          example: Polygon
+        coordinates:
+          type: array
+          description: Array de anillos lineales. El primero es el anillo exterior.
+          items:
+            type: array
+            items:
+              type: array
+              minItems: 2
+              maxItems: 2
+              items:
+                type: number
+              description: Par [longitud, latitud] en WGS84.
+          example:
+            - - [-58.390000, -34.590000]
+              - [-58.370000, -34.590000]
+              - [-58.370000, -34.610000]
+              - [-58.390000, -34.610000]
+              - [-58.390000, -34.590000]
+
+    ZonaRequest:
+      type: object
+      required: [descripcion, coordenadas]
+      properties:
+        descripcion:
+          type: string
+          maxLength: 200
+          description: Nombre o descripción de la zona.
+          example: Zona Norte - Vendedor Pérez
+        color:
+          type: string
+          description: Color hex para renderizar la zona en el mapa.
+          pattern: '^#[0-9A-Fa-f]{6}$'
+          example: '#FF5733'
+        coordenadas:
+          $ref: '#/components/schemas/GeoJsonPolygon'
+
+    ZonaResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+          description: ID entero de la zona.
+          example: 12
+        descripcion:
+          type: string
+          example: Zona Norte - Vendedor Pérez
+        color:
+          type: string
+          example: '#FF5733'
+        coordenadas:
+          $ref: '#/components/schemas/GeoJsonPolygon'
+
+    # ── Paginación ────────────────────────────────────────────────────────────────
+
+    PaginaResponse:
+      type: object
+      description: Envelope estándar de respuesta paginada. La primera página es `pagina=0`.
+      properties:
+        pagina:
+          type: integer
+          description: Número de página actual (base 0).
+          example: 0
+        tamanio:
+          type: integer
+          description: Cantidad de elementos por página solicitada.
+          example: 20
+        totalElementos:
+          type: integer
+          description: Total de elementos en toda la colección.
+          example: 150
+        totalPaginas:
+          type: integer
+          description: Total de páginas disponibles.
+          example: 8
+
+    # ── Error ─────────────────────────────────────────────────────────────────────
+
+    ErrorResponse:
+      type: object
+      description: Envelope estándar de error. Se usa en todos los códigos de error HTTP.
+      properties:
+        codigo:
+          type: string
+          description: Código de error en SCREAMING_SNAKE_CASE, legible por la aplicación cliente.
+          example: EMPLEADO_NO_ENCONTRADO
+        mensaje:
+          type: string
+          description: Descripción del error para logs o mensajes al usuario.
+          example: No se encontró el empleado con id f7e6d5c4-b3a2-1098-7654-321098fedcba
+        correlationId:
+          type: string
+          format: uuid
+          description: UUID de la request, para rastrear en logs.
+          example: a1b2c3d4-0000-0000-0000-000000000000
+        timestamp:
+          type: string
+          format: date-time
+          description: Momento en que ocurrió el error.
+          example: '2026-03-17T10:00:00Z'
