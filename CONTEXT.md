@@ -88,9 +88,10 @@ Idéntico a VGM Core (Mauricio es la referencia).
 clientes_saas
   └── empresas
         └── sucursales
-              ├── empleados
-              ├── puntos_venta
-              └── zonas
+              ├── entidades (Party Model — vendedores, repartidores, clientes)
+              │     └── entidades_roles (VENDEDOR, REPARTIDOR, SUPERVISOR, CLIENTE)
+              ├── zonas
+              └── posiciones
 ```
 
 Mismos nombres de tablas y columnas que VGM Core.
@@ -126,10 +127,12 @@ Ver detalle completo en `03-datos/01-modelo.md`
 - `cuentas` — identidad global (co_sub_oidc para Auth0 en Etapa 2)
 - `usuarios_geo` — membresía de cuenta en un tenant
 - `usuarios_geo_sucursales` — acceso a sucursales con rol (`ADMIN`, `OPERADOR`, `READONLY`)
+- `api_keys` — claves de autenticación para fuentes externas de ingesta GPS
 
-**Campos puente para integración futura:**
-- `empleados.id_publico_core UUID NULL`
-- `puntos_venta.id_publico_core UUID NULL`
+**Party Model (ADR-009 — alineado con VGM Core):**
+- `entidades` — unifica lo que antes eran `empleados` y `puntos_venta`
+- `entidades_roles` — rol que ejerce: `VENDEDOR`, `REPARTIDOR`, `SUPERVISOR` (móviles) o `CLIENTE` (coordenadas fijas, ex puntos_venta)
+- `entidades.id_publico_core UUID NULL` — puente para integración futura con VGM Core
 
 ---
 
@@ -198,6 +201,8 @@ Ver detalle en `05-integraciones/01-fuentes-datos.md`
 - Auth0: `vgm-core-dev.us.auth0.com`, aplicación `VGM Core Geo`
 - Integración entre productos siempre por API REST
 - OpenStreetMap reemplaza Google Maps
+- Party Model (ADR-009): `entidades` + `entidades_roles` reemplaza `empleados` + `puntos_venta`
+- Roles de Geo: `VENDEDOR`, `REPARTIDOR`, `SUPERVISOR` (móviles, reportan GPS) y `CLIENTE` (coordenadas fijas, ex puntos_venta)
 
 ---
 

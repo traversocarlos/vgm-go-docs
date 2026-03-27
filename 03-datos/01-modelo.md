@@ -1,7 +1,7 @@
 # Modelo de datos
 
-**Versión:** 2.1
-**Fecha:** 2026-03-14
+**Versión:** 3.0
+**Fecha:** 2026-03-27
 **Estado:** Activo
 
 ---
@@ -20,22 +20,40 @@ La jerarquía de tenancy es **idéntica a VGM Core** — mismos nombres de tabla
 clientes_saas (tenant — el cliente que contrató VGM Core Geo)
   └── empresas (las empresas del cliente)
         └── sucursales (las sucursales de cada empresa)
-              ├── empleados (vendedores, repartidores)
-              ├── puntos_venta
-              └── zonas
+              ├── entidades (personas físicas o jurídicas — vendedores, repartidores, clientes)
+              │     └── entidades_roles (rol que ejerce: VENDEDOR, REPARTIDOR, SUPERVISOR, CLIENTE)
+              ├── zonas
+              └── posiciones
 ```
 
 **Ejemplo real:**
 ```
 D OUNI (cliente_saas)
   ├── OV (empresa)
-  │     ├── Sucursal Centro → vendedores, puntos de venta
-  │     └── Sucursal Norte  → vendedores, puntos de venta
+  │     ├── Sucursal Centro → entidades (vendedores, clientes), zonas
+  │     └── Sucursal Norte  → entidades (vendedores, clientes), zonas
   ├── ZIRKA (empresa)
-  │     └── Sucursal única  → vendedores, puntos de venta
+  │     └── Sucursal única  → entidades, zonas
   └── OV2 (empresa)
-        └── Sucursal única  → vendedores, puntos de venta
+        └── Sucursal única  → entidades, zonas
 ```
+
+---
+
+## Party Model (ADR-009 — alineado con VGM Core)
+
+VGM Core Geo implementa el mismo Party Model que VGM Core: una sola tabla `entidades` unifica lo que antes eran `empleados` y `puntos_venta`. El rol de cada entidad se define en `entidades_roles`.
+
+**Ventaja clave:** si "Juan García" es vendedor y también es un cliente de la sucursal, sus datos se almacenan una sola vez.
+
+| Rol | Descripción | Equivalente legacy |
+|---|---|---|
+| `VENDEDOR` | Reporta posiciones GPS en movimiento | ex-empleados tipo VENDEDOR |
+| `REPARTIDOR` | Reporta posiciones GPS en movimiento | ex-empleados tipo REPARTIDOR |
+| `SUPERVISOR` | Reporta posiciones GPS en movimiento | ex-empleados tipo SUPERVISOR |
+| `CLIENTE` | Tiene coordenadas fijas (punto de visita) | ex-puntos_venta |
+
+Sin CHECK constraint en `co_rol`: nuevos roles (ej: `VEHICULO`) se agregan sin modificar el schema. La validación vive en la aplicación.
 
 ---
 
@@ -46,8 +64,8 @@ D OUNI (cliente_saas)
 CREATE TABLE clientes_saas (
     id_cliente_saas     bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id_publico          uuid NOT NULL DEFAULT gen_random_uuid(),
-    co_cliente_saas     varchar(50) NOT NULL,
-    de_cliente_saas     varchar(200) NOT NULL,
+    co_cliente          varchar(50) NOT NULL,
+    de_cliente          varchar(200) NOT NULL,
     sn_activo           boolean NOT NULL DEFAULT true,
     fe_alta             timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT uq_cliente_saas_publico UNIQUE (id_publico)
@@ -90,7 +108,7 @@ CREATE TABLE sucursales (
 Siguen el patrón de VGM Core: identidad global separada de la membresía en el tenant.
 
 ### `cuentas`
-Identidad global. Un usuario puede tener cuentas en múltiples tenants.
+Identidad global. Un usuario puede tener membresía en múltiples tenants.
 ```sql
 CREATE TABLE cuentas (
     id_cuenta           bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -132,80 +150,117 @@ CREATE TABLE usuarios_geo_sucursales (
 );
 ```
 
----
-
-## Tablas operativas
-
-### `empleados`
+### `api_keys`
+Claves de autenticación para fuentes externas de ingesta GPS.
 ```sql
-CREATE TABLE empleados (
-    id_empleado         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_publico          uuid NOT NULL DEFAULT gen_random_uuid(),
+CREATE TABLE api_keys (
+    id_api_key          bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     id_cliente_saas     bigint NOT NULL REFERENCES clientes_saas(id_cliente_saas),
     id_empresa          bigint NOT NULL REFERENCES empresas(id_empresa),
-    id_sucursal         bigint NOT NULL REFERENCES sucursales(id_sucursal),
-    co_empleado         varchar(50) NOT NULL,
-    de_nombre           varchar(200) NOT NULL,
-    co_tipo             varchar(20) NOT NULL,  -- 'VENDEDOR', 'REPARTIDOR', 'SUPERVISOR'
-    sn_registra_coords  boolean NOT NULL DEFAULT true,
-    sn_activo           boolean NOT NULL DEFAULT true,
-    fe_alta             timestamptz NOT NULL DEFAULT now(),
-    id_publico_core     uuid NULL,             -- puente para integración futura con VGM Core
-    CONSTRAINT uq_empleado_publico UNIQUE (id_publico)
-);
-```
-
-### `posiciones`
-```sql
-CREATE TABLE posiciones (
-    id_posicion         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_cliente_saas     bigint NOT NULL,
-    id_empresa          bigint NOT NULL,
-    id_sucursal         bigint NOT NULL,
-    id_empleado         bigint NOT NULL REFERENCES empleados(id_empleado),
-    nu_latitud          numeric(10,7) NOT NULL,
-    nu_longitud         numeric(10,7) NOT NULL,
-    nu_precision        numeric(8,2),
-    nu_velocidad        numeric(8,2),
-    co_tipo_operacion   varchar(30),
-    fe_posicion         timestamptz NOT NULL,
-    fe_recibida         timestamptz NOT NULL DEFAULT now()
-);
-```
-
-### `puntos_venta`
-```sql
-CREATE TABLE puntos_venta (
-    id_punto_venta      bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_publico          uuid NOT NULL DEFAULT gen_random_uuid(),
-    id_cliente_saas     bigint NOT NULL REFERENCES clientes_saas(id_cliente_saas),
-    id_empresa          bigint NOT NULL REFERENCES empresas(id_empresa),
-    id_sucursal         bigint NOT NULL REFERENCES sucursales(id_sucursal),
-    co_punto_venta      varchar(50) NOT NULL,
-    de_nombre           varchar(200) NOT NULL,
-    nu_latitud          numeric(10,7),
-    nu_longitud         numeric(10,7),
-    sn_activo           boolean NOT NULL DEFAULT true,
-    fe_alta             timestamptz NOT NULL DEFAULT now(),
-    id_publico_core     uuid NULL,             -- puente para integración futura con VGM Core
-    CONSTRAINT uq_punto_venta_publico UNIQUE (id_publico)
-);
-```
-
-### `zonas`
-```sql
-CREATE TABLE zonas (
-    id_zona             bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    id_cliente_saas     bigint NOT NULL REFERENCES clientes_saas(id_cliente_saas),
-    id_empresa          bigint NOT NULL REFERENCES empresas(id_empresa),
-    id_sucursal         bigint NOT NULL REFERENCES sucursales(id_sucursal),
-    de_nombre           varchar(200) NOT NULL,
-    de_color            varchar(7),
-    de_coordenadas      jsonb NOT NULL,
+    co_api_key          varchar(100) NOT NULL UNIQUE,
+    de_descripcion      varchar(200),
+    co_fuente           varchar(50) NOT NULL,  -- 'GEMA', 'BRIDGE_VGMDIS', 'TRACKER', etc.
     sn_activo           boolean NOT NULL DEFAULT true,
     fe_alta             timestamptz NOT NULL DEFAULT now()
 );
 ```
+
+---
+
+## Tablas operativas
+
+### `entidades`
+Party Model: unifica lo que antes eran `empleados` y `puntos_venta`.
+```sql
+CREATE TABLE entidades (
+    id_entidad          bigserial    PRIMARY KEY,
+    id_publico          uuid         NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    id_cliente_saas     bigint       NOT NULL REFERENCES clientes_saas(id_cliente_saas),
+    id_empresa          bigint       NOT NULL REFERENCES empresas(id_empresa),
+    id_sucursal         bigint       NOT NULL REFERENCES sucursales(id_sucursal),
+    co_entidad          varchar(50)  NOT NULL,  -- código funcional (id_legajo cuando viene de Bridge VGMDIS)
+    de_nombre           varchar(300) NOT NULL,
+    -- Coordenadas fijas: solo aplican para rol CLIENTE (ex punto de venta)
+    nu_latitud          decimal(10, 7),
+    nu_longitud         decimal(10, 7),
+    de_direccion        varchar(300),
+    -- Puente a VGM Core para integración futura
+    id_publico_core     uuid,
+    sn_activo           boolean      NOT NULL DEFAULT true,
+    fe_alta             timestamptz  NOT NULL DEFAULT now(),
+    fe_modificacion     timestamptz,
+    UNIQUE (id_empresa, co_entidad)
+);
+```
+
+### `entidades_roles`
+Roles que ejerce una entidad. Una entidad puede tener múltiples roles.
+```sql
+CREATE TABLE entidades_roles (
+    id_entidad_rol  bigserial    PRIMARY KEY,
+    id_entidad      bigint       NOT NULL REFERENCES entidades(id_entidad),
+    id_cliente_saas bigint       NOT NULL,
+    id_empresa      bigint       NOT NULL,
+    id_sucursal     bigint       NOT NULL,
+    co_rol          varchar(20)  NOT NULL,  -- VENDEDOR, REPARTIDOR, SUPERVISOR, CLIENTE, VEHICULO, ...
+    sn_activo       boolean      NOT NULL DEFAULT true,
+    fe_alta         timestamptz  NOT NULL DEFAULT now(),
+    UNIQUE (id_entidad, co_rol)
+);
+```
+
+### `zonas`
+Áreas geográficas definidas por polígono (territorios de vendedor, zonas de reparto, etc.).
+```sql
+CREATE TABLE zonas (
+    id_zona             bigserial    PRIMARY KEY,
+    id_publico          uuid         NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    id_cliente_saas     bigint       NOT NULL REFERENCES clientes_saas(id_cliente_saas),
+    id_empresa          bigint       NOT NULL REFERENCES empresas(id_empresa),
+    id_sucursal         bigint       NOT NULL REFERENCES sucursales(id_sucursal),
+    co_zona             varchar(20)  NOT NULL,
+    de_zona             varchar(100) NOT NULL,
+    de_color            varchar(7),             -- hex color para el mapa, ej: #FF5733
+    sn_activo           boolean      NOT NULL DEFAULT true,
+    fe_alta             timestamptz  NOT NULL DEFAULT now(),
+    fe_modificacion     timestamptz,
+    UNIQUE (id_empresa, co_zona)
+);
+```
+
+### `posiciones`
+Historial de posiciones GPS recibidas de todas las fuentes.
+```sql
+CREATE TABLE posiciones (
+    id_posicion         bigserial      PRIMARY KEY,
+    id_publico          uuid           NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+    id_entidad          bigint         NOT NULL REFERENCES entidades(id_entidad),
+    id_cliente_saas     bigint         NOT NULL,
+    id_empresa          bigint         NOT NULL,
+    id_sucursal         bigint         NOT NULL,
+    nu_latitud          decimal(10, 7) NOT NULL,
+    nu_longitud         decimal(10, 7) NOT NULL,
+    fe_posicion         timestamptz    NOT NULL,
+    nu_precision        decimal(6, 2),
+    nu_velocidad        decimal(6, 2),
+    nu_altitud          decimal(8, 2),
+    co_tipo_operacion   varchar(30),
+    co_fuente           varchar(50)    NOT NULL,  -- origen del dato (co_fuente de api_keys)
+    fe_recepcion        timestamptz    NOT NULL DEFAULT now()
+);
+```
+
+---
+
+## Funciones SECURITY DEFINER (ingesta)
+
+El flujo de ingesta GPS necesita acceder a `api_keys` y `entidades` **antes** de que el tenant context esté seteado en sesión. Para resolver este bootstrap sin conceder `BYPASSRLS` al usuario de aplicación, se usan funciones `SECURITY DEFINER`:
+
+| Función | Propósito |
+|---|---|
+| `buscar_api_key(co_api_key)` | Valida y retorna la API Key sin requerir tenant context |
+| `buscar_entidad_ingesta(id_publico, id_empresa, id_cliente_saas)` | Resuelve entidad por UUID público |
+| `buscar_entidad_por_codigo(co_entidad, id_empresa, id_cliente_saas)` | Resuelve entidad por `co_entidad` (permite que el Bridge VGMDIS envíe `id_legajo` directamente) |
 
 ---
 
@@ -215,14 +270,14 @@ Idénticas a VGM Core:
 
 | Prefijo | Significado | Ejemplo |
 |---|---|---|
-| `id_` | Identificador interno | `id_empleado` |
-| `co_` | Código funcional | `co_tipo` |
+| `id_` | Identificador interno | `id_entidad` |
+| `co_` | Código funcional | `co_entidad`, `co_rol` |
 | `de_` | Descripción o texto | `de_nombre` |
 | `nu_` | Número o medida | `nu_latitud` |
 | `sn_` | Sí/No (boolean) | `sn_activo` |
 | `fe_` | Fecha | `fe_alta` |
 
-Toda tabla tiene `id_publico UUID` para exponer en APIs (nunca se expone el ID interno).
+Toda tabla tiene `id_publico UUID` para exponer en APIs. El ID interno (`bigint`) **nunca** se expone en APIs.
 
 ---
 
@@ -230,4 +285,4 @@ Toda tabla tiene `id_publico UUID` para exponer en APIs (nunca se expone el ID i
 
 VGM Core Geo, VGM Core y VGM GEMA se comunican **únicamente por API REST**. Nunca por base de datos compartida.
 
-Los campos `id_publico_core` en `empleados` y `puntos_venta` son el puente técnico para sincronización futura entre productos.
+El campo `id_publico_core` en `entidades` es el puente técnico para sincronización futura con VGM Core.

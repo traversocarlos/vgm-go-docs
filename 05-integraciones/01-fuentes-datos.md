@@ -35,7 +35,8 @@ VGM Core Geo no sabe ni le importa quién mandó los datos. El origen se identif
 
 ```json
 {
-  "idEmpleado": "uuid-del-empleado",
+  "idEntidad": "uuid-publico-de-la-entidad",
+  "coEntidad": "1042",
   "latitud": -27.4516,
   "longitud": -58.9867,
   "precision": 5.2,
@@ -44,6 +45,8 @@ VGM Core Geo no sabe ni le importa quién mandó los datos. El origen se identif
   "fechaPosicion": "2026-03-13T09:30:00Z"
 }
 ```
+
+> `idEntidad` o `coEntidad` — al menos uno requerido. El Bridge VGMDIS envía `coEntidad` con el `id_legajo` directamente.
 
 ---
 
@@ -65,7 +68,7 @@ Un proceso bridge independiente hace:
 
 ## Integración futura con VGM Core
 
-Cuando un cliente usa VGM Core + VGM Core Geo, los datos de empleados y puntos de venta se pueden sincronizar. Modelos posibles ordenados por complejidad:
+Cuando un cliente usa VGM Core + VGM Core Geo, los datos de entidades se pueden sincronizar. Modelos posibles ordenados por complejidad:
 
 | Modelo | Cómo funciona | Cuándo usarlo |
 |---|---|---|
@@ -74,6 +77,6 @@ Cuando un cliente usa VGM Core + VGM Core Geo, los datos de empleados y puntos d
 | ETL programado | Script que sincroniza periódicamente | Cambios frecuentes, delay tolerable |
 | API de integración | VGM Core expone endpoints que VGM Core Geo consulta | Sincronización casi en tiempo real |
 
-**Recomendación para arrancar:** exportación/importación. Los empleados no cambian todos los días. Se evoluciona cuando haya un cliente real que lo necesite.
+**Recomendación para arrancar:** exportación/importación. Las entidades no cambian todos los días. Se evoluciona cuando haya un cliente real que lo necesite.
 
-> Los campos `id_publico_core` en las tablas `empleados` y `puntos_venta` son el puente técnico para cualquiera de estos modelos.
+> El campo `id_publico_core` en la tabla `entidades` es el puente técnico para cualquiera de estos modelos.

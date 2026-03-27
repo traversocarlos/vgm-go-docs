@@ -1,5 +1,8 @@
 # VGM Core Geo — Diseño de API
 
+**Versión:** 3.0
+**Fecha:** 2026-03-27
+
 ## Resumen ejecutivo
 
 **VGM Core Geo** es el sistema de geolocalización en tiempo real para empresas de distribución y ventas. Reemplaza Ultra GEO (ASP.NET + Google Maps) con un stack moderno: Kotlin 2.1 + Spring Boot 3.5 + PostgreSQL 17 en el backend, y React 18 + TypeScript + Leaflet.js + OpenStreetMap en el frontend.
@@ -7,9 +10,9 @@
 La API expone dos tipos de contrato:
 
 1. **Ingesta GPS** — recibe posiciones desde fuentes externas (app móvil, bridge legado, trackers hardware, sistemas externos). Usa autenticación por API Key.
-2. **Frontend / administración** — consulta de posiciones, gestión de empleados, puntos de venta y zonas. Usa JWT Bearer con contexto de empresa y sucursal activa.
+2. **Frontend / administración** — consulta de posiciones, gestión de entidades y zonas. Usa JWT Bearer con contexto de empresa y sucursal activa.
 
-Todos los recursos siguen una jerarquía de multi-tenancy: `clientes_saas → empresas → sucursales → empleados`.
+Todos los recursos siguen una jerarquía de multi-tenancy: `clientes_saas → empresas → sucursales → entidades`.
 
 ---
 
@@ -34,7 +37,7 @@ X-Sucursal-Id: 3
 
 El backend filtra todos los datos según estos headers. Una misma cuenta de usuario puede tener acceso a múltiples empresas o sucursales — la sesión indica cuáles tiene disponibles.
 
-### Flujo de autenticación (Etapa 1)
+### Flujo de autenticación (Etapa 1 — JWT propio)
 
 ```
 [Cliente]  →  POST /api/v1/auth/login  →  [Backend]
@@ -50,6 +53,8 @@ El backend filtra todos los datos según estos headers. Una misma cuenta de usua
                 X-Empresa-Id
                 X-Sucursal-Id
 ```
+
+> Etapa 2: se conecta Auth0 como proveedor. Solo cambia `application.yml` — el resto del código queda igual (ADR-003).
 
 ### Fuentes de datos GPS y su autenticación
 
@@ -77,6 +82,7 @@ El backend filtra todos los datos según estos headers. Una misma cuenta de usua
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
 | GET | `/api/v1/sesion/yo` | JWT | Devuelve el usuario autenticado con sus empresas y sucursales disponibles |
+| GET | `/api/v1/sesion/sucursales` | JWT | Sucursales disponibles del usuario |
 
 ### 3. Ingesta de posiciones
 
@@ -88,39 +94,29 @@ El backend filtra todos los datos según estos headers. Una misma cuenta de usua
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| GET | `/api/v1/posiciones/actuales` | JWT | Última posición de todos los empleados de la sucursal activa |
-| GET | `/api/v1/posiciones/actuales/{idPublicoEmpleado}` | JWT | Última posición de un empleado específico |
-| GET | `/api/v1/posiciones/historial/{idPublicoEmpleado}` | JWT | Historial de posiciones de un empleado con filtros |
+| GET | `/api/v1/posiciones/actuales` | JWT | Última posición de todas las entidades móviles de la sucursal activa |
+| GET | `/api/v1/posiciones/actuales/{idPublicoEntidad}` | JWT | Última posición de una entidad específica |
+| GET | `/api/v1/posiciones/historial/{idPublicoEntidad}` | JWT | Historial de posiciones de una entidad con filtros |
 
-### 5. Empleados
-
-| Método | Path | Auth | Descripción |
-|---|---|---|---|
-| GET | `/api/v1/empleados` | JWT | Listado paginado de empleados |
-| GET | `/api/v1/empleados/{idPublico}` | JWT | Detalle de un empleado |
-| POST | `/api/v1/empleados` | JWT | Crea un nuevo empleado |
-| PUT | `/api/v1/empleados/{idPublico}` | JWT | Actualiza un empleado |
-| DELETE | `/api/v1/empleados/{idPublico}` | JWT | Desactiva un empleado (soft delete) |
-
-### 6. Puntos de venta
+### 5. Entidades
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
-| GET | `/api/v1/puntos-venta` | JWT | Listado paginado de puntos de venta |
-| GET | `/api/v1/puntos-venta/{idPublico}` | JWT | Detalle de un punto de venta |
-| POST | `/api/v1/puntos-venta` | JWT | Crea un nuevo punto de venta |
-| PUT | `/api/v1/puntos-venta/{idPublico}` | JWT | Actualiza un punto de venta |
-| DELETE | `/api/v1/puntos-venta/{idPublico}` | JWT | Elimina un punto de venta |
+| GET | `/api/v1/entidades` | JWT | Listado paginado de entidades (filtrable por rol) |
+| GET | `/api/v1/entidades/{idPublico}` | JWT | Detalle de una entidad |
+| POST | `/api/v1/entidades` | JWT | Crea una nueva entidad |
+| PUT | `/api/v1/entidades/{idPublico}` | JWT | Actualiza una entidad |
+| DELETE | `/api/v1/entidades/{idPublico}` | JWT | Desactiva una entidad (soft delete) |
 
-### 7. Zonas
+### 6. Zonas
 
 | Método | Path | Auth | Descripción |
 |---|---|---|---|
 | GET | `/api/v1/zonas` | JWT | Listado de zonas |
-| GET | `/api/v1/zonas/{id}` | JWT | Detalle de una zona |
-| POST | `/api/v1/zonas` | JWT | Crea una nueva zona con polígono GeoJSON |
-| PUT | `/api/v1/zonas/{id}` | JWT | Actualiza una zona |
-| DELETE | `/api/v1/zonas/{id}` | JWT | Elimina una zona |
+| GET | `/api/v1/zonas/{idPublico}` | JWT | Detalle de una zona |
+| POST | `/api/v1/zonas` | JWT | Crea una nueva zona con polígono |
+| PUT | `/api/v1/zonas/{idPublico}` | JWT | Actualiza una zona |
+| DELETE | `/api/v1/zonas/{idPublico}` | JWT | Desactiva una zona (soft delete) |
 
 ---
 
@@ -157,14 +153,14 @@ El backend filtra todos los datos según estos headers. Una misma cuenta de usua
   "idPublico": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
   "nombre": "Gustavo Rodríguez",
   "email": "gustavo@vgm.com.ar",
-  "empresas": [
+  "sucursales": [
     {
-      "id": 7,
-      "descripcion": "Distribuidora Sur S.A.",
-      "sucursales": [
-        { "id": 3, "descripcion": "Casa Central" },
-        { "id": 4, "descripcion": "Sucursal Norte" }
-      ]
+      "idSucursal": 3,
+      "deSucursal": "Casa Central",
+      "idEmpresa": 7,
+      "deEmpresa": "Distribuidora Sur S.A.",
+      "coRol": "ADMIN",
+      "activa": true
     }
   ]
 }
@@ -177,17 +173,17 @@ El backend filtra todos los datos según estos headers. Una misma cuenta de usua
 **Request** `POST /api/v1/posiciones`
 **Header**: `X-Api-Key: {clave_de_fuente}`
 
-El payload acepta identificar al empleado de dos formas alternativas:
+El payload acepta identificar la entidad de dos formas alternativas:
 
-- `idEmpleado` (UUID) — cuando la fuente ya conoce el ID público del empleado en VGM Core Geo.
-- `coEmpleado` (string) — cuando la fuente envía un código funcional. Esto permite que el Bridge VGMDIS envíe directamente el `id_legajo` sin necesidad de hacer un lookup previo (ver sección sobre mapeo VGMDIS más abajo).
+- `idEntidad` (UUID) — cuando la fuente ya conoce el `id_publico` de la entidad en VGM Core Geo.
+- `coEntidad` (string) — cuando la fuente envía un código funcional. Permite que el Bridge VGMDIS envíe directamente el `id_legajo` sin necesidad de lookup previo.
 
 Al menos uno de los dos debe estar presente.
 
 ```json
 {
-  "idEmpleado": "f7e6d5c4-b3a2-1098-7654-321098fedcba",
-  "coEmpleado": "1042",
+  "idEntidad": "f7e6d5c4-b3a2-1098-7654-321098fedcba",
+  "coEntidad": "1042",
   "latitud": -34.603722,
   "longitud": -58.381592,
   "fechaPosicion": "2026-03-17T09:45:00Z",
@@ -198,12 +194,10 @@ Al menos uno de los dos debe estar presente.
 }
 ```
 
-Campos:
-
 | Campo | Tipo | Requerido | Descripción |
 |---|---|---|---|
-| `idEmpleado` | UUID | Condicional | ID público del empleado. Requerido si no viene `coEmpleado` |
-| `coEmpleado` | string (max 50) | Condicional | Código funcional del empleado. Requerido si no viene `idEmpleado` |
+| `idEntidad` | UUID | Condicional | `id_publico` de la entidad. Requerido si no viene `coEntidad` |
+| `coEntidad` | string (max 50) | Condicional | Código funcional. Requerido si no viene `idEntidad` |
 | `latitud` | decimal | Sí | Latitud WGS84 |
 | `longitud` | decimal | Sí | Longitud WGS84 |
 | `fechaPosicion` | ISO 8601 | Sí | Timestamp del momento de la posición (con timezone) |
@@ -229,14 +223,14 @@ Campos:
 
 **Response 200** `GET /api/v1/posiciones/actuales`
 
-Devuelve la última posición conocida de cada empleado activo en la sucursal indicada por `X-Sucursal-Id`.
+Devuelve la última posición conocida de cada entidad móvil activa (roles: `VENDEDOR`, `REPARTIDOR`, `SUPERVISOR`) en la sucursal indicada por `X-Sucursal-Id`.
 
 ```json
 [
   {
-    "idEmpleado": "f7e6d5c4-b3a2-1098-7654-321098fedcba",
-    "nombreEmpleado": "Juan Pérez",
-    "tipoEmpleado": "VENDEDOR",
+    "idEntidad": "f7e6d5c4-b3a2-1098-7654-321098fedcba",
+    "deNombre": "Juan Pérez",
+    "coRol": "VENDEDOR",
     "latitud": -34.603722,
     "longitud": -58.381592,
     "fechaPosicion": "2026-03-17T09:45:00Z",
@@ -253,79 +247,71 @@ Devuelve la última posición conocida de cada empleado activo en la sucursal in
 
 ### Historial de posiciones
 
-**Parámetros de query** `GET /api/v1/posiciones/historial/{idPublicoEmpleado}`
+**Parámetros de query** `GET /api/v1/posiciones/historial/{idPublicoEntidad}`
 
 | Parámetro | Tipo | Descripción |
 |---|---|---|
-| `fecha` | YYYY-MM-DD | Filtra por día completo (conveniente para el mapa de recorrido diario) |
+| `fecha` | YYYY-MM-DD | Filtra por día completo |
 | `desde` | ISO 8601 datetime | Inicio del rango (alternativa a `fecha`) |
 | `hasta` | ISO 8601 datetime | Fin del rango (alternativa a `fecha`) |
 | `tipoOperacion` | string | Filtra por tipo de operación |
 
-`fecha` y `desde`/`hasta` son mutuamente excluyentes. Si se envía `fecha`, se ignoran los otros dos.
-
-**Response 200**
-
-```json
-[
-  {
-    "latitud": -34.603722,
-    "longitud": -58.381592,
-    "fechaPosicion": "2026-03-17T08:00:00Z",
-    "precision": 6.0,
-    "velocidad": 0.0,
-    "altitud": 24.0,
-    "tipoOperacion": "ENVIO_PERIODICO"
-  },
-  {
-    "latitud": -34.612500,
-    "longitud": -58.393100,
-    "fechaPosicion": "2026-03-17T09:45:00Z",
-    "precision": 8.5,
-    "velocidad": 45.2,
-    "altitud": 25.0,
-    "tipoOperacion": "VENTA"
-  }
-]
-```
+`fecha` y `desde`/`hasta` son mutuamente excluyentes.
 
 ---
 
-### Empleados
+### Entidades
 
-**Request** `POST /api/v1/empleados` / `PUT /api/v1/empleados/{idPublico}`
+**Request** `POST /api/v1/entidades` / `PUT /api/v1/entidades/{idPublico}`
 
 ```json
 {
-  "coEmpleado": "1042",
-  "nombre": "Juan Pérez",
-  "tipo": "VENDEDOR",
+  "coEntidad": "1042",
+  "deNombre": "Juan Pérez",
+  "roles": ["VENDEDOR"],
+  "nuLatitud": null,
+  "nuLongitud": null,
+  "deDireccion": null,
   "snActivo": true
 }
 ```
+
+> Para una entidad con rol `CLIENTE` (ex punto de venta), incluir `nuLatitud`, `nuLongitud` y `deDireccion`.
 
 **Response 200/201**
 
 ```json
 {
   "idPublico": "f7e6d5c4-b3a2-1098-7654-321098fedcba",
-  "coEmpleado": "1042",
-  "nombre": "Juan Pérez",
-  "tipo": "VENDEDOR",
-  "snActivo": true
+  "coEntidad": "1042",
+  "deNombre": "Juan Pérez",
+  "roles": ["VENDEDOR"],
+  "nuLatitud": null,
+  "nuLongitud": null,
+  "deDireccion": null,
+  "snActivo": true,
+  "feAlta": "2026-01-15T10:00:00Z"
 }
 ```
 
-**Listado paginado** `GET /api/v1/empleados?activo=true&tipo=VENDEDOR&pagina=0&tamanio=20`
+**Listado paginado** `GET /api/v1/entidades?rol=VENDEDOR&activo=true&pagina=0&tamanio=20`
+
+| Parámetro | Descripción |
+|---|---|
+| `rol` | Filtra por rol: `VENDEDOR`, `REPARTIDOR`, `SUPERVISOR`, `CLIENTE` |
+| `activo` | Default `true` |
+| `buscar` | Búsqueda por nombre o código |
+| `pagina` | Default `0` |
+| `tamanio` | Default `20`, máximo `100` |
 
 ```json
 {
   "contenido": [
     {
       "idPublico": "f7e6d5c4-b3a2-1098-7654-321098fedcba",
-      "coEmpleado": "1042",
-      "nombre": "Juan Pérez",
-      "tipo": "VENDEDOR",
+      "coEntidad": "1042",
+      "deNombre": "Juan Pérez",
+      "roles": ["VENDEDOR"],
       "snActivo": true
     }
   ],
@@ -336,21 +322,24 @@ Devuelve la última posición conocida de cada empleado activo en la sucursal in
 }
 ```
 
-Tipos de empleado válidos: `VENDEDOR`, `REPARTIDOR`, `SUPERVISOR`
-
 ---
 
-### Puntos de venta
+### Zonas
 
-**Request** `POST /api/v1/puntos-venta` / `PUT /api/v1/puntos-venta/{idPublico}`
+**Request** `POST /api/v1/zonas` / `PUT /api/v1/zonas/{idPublico}`
 
 ```json
 {
-  "coPuntoVenta": "PV-0041",
-  "descripcion": "Supermercado El Sol",
-  "latitud": -34.615000,
-  "longitud": -58.400000,
-  "direccion": "Av. San Martín 1234, Buenos Aires"
+  "coZona": "NORTE",
+  "deZona": "Zona Norte - Vendedor Pérez",
+  "deColor": "#FF5733",
+  "coordenadas": [
+    [-58.390000, -34.590000],
+    [-58.370000, -34.590000],
+    [-58.370000, -34.610000],
+    [-58.390000, -34.610000],
+    [-58.390000, -34.590000]
+  ]
 }
 ```
 
@@ -359,60 +348,10 @@ Tipos de empleado válidos: `VENDEDOR`, `REPARTIDOR`, `SUPERVISOR`
 ```json
 {
   "idPublico": "b9c8d7e6-f5a4-3b2c-1d0e-9f8a7b6c5d4e",
-  "coPuntoVenta": "PV-0041",
-  "descripcion": "Supermercado El Sol",
-  "latitud": -34.615000,
-  "longitud": -58.400000,
-  "direccion": "Av. San Martín 1234, Buenos Aires"
-}
-```
-
----
-
-### Zonas
-
-Las zonas definen áreas geográficas (territorios de vendedor, zonas de reparto, etc.) usando polígonos GeoJSON.
-
-**Request** `POST /api/v1/zonas` / `PUT /api/v1/zonas/{id}`
-
-```json
-{
-  "descripcion": "Zona Norte - Vendedor Pérez",
-  "color": "#FF5733",
-  "coordenadas": {
-    "type": "Polygon",
-    "coordinates": [
-      [
-        [-58.390000, -34.590000],
-        [-58.370000, -34.590000],
-        [-58.370000, -34.610000],
-        [-58.390000, -34.610000],
-        [-58.390000, -34.590000]
-      ]
-    ]
-  }
-}
-```
-
-**Response 200/201**
-
-```json
-{
-  "id": 12,
-  "descripcion": "Zona Norte - Vendedor Pérez",
-  "color": "#FF5733",
-  "coordenadas": {
-    "type": "Polygon",
-    "coordinates": [
-      [
-        [-58.390000, -34.590000],
-        [-58.370000, -34.590000],
-        [-58.370000, -34.610000],
-        [-58.390000, -34.610000],
-        [-58.390000, -34.590000]
-      ]
-    ]
-  }
+  "coZona": "NORTE",
+  "deZona": "Zona Norte - Vendedor Pérez",
+  "deColor": "#FF5733",
+  "coordenadas": [...]
 }
 ```
 
@@ -426,8 +365,8 @@ Todos los errores devuelven el mismo envelope independientemente del código HTT
 
 ```json
 {
-  "codigo": "EMPLEADO_NO_ENCONTRADO",
-  "mensaje": "No se encontró el empleado con id f7e6d5c4-b3a2-1098-7654-321098fedcba",
+  "codigo": "ENTIDAD_NO_ENCONTRADA",
+  "mensaje": "No se encontró la entidad con id f7e6d5c4-b3a2-1098-7654-321098fedcba",
   "correlationId": "a1b2c3d4-0000-0000-0000-000000000000",
   "timestamp": "2026-03-17T10:00:00Z"
 }
@@ -436,8 +375,8 @@ Todos los errores devuelven el mismo envelope independientemente del código HTT
 | Campo | Descripción |
 |---|---|
 | `codigo` | Código de error legible por la app, en SCREAMING_SNAKE_CASE |
-| `mensaje` | Descripción para mostrar en logs o mensajes de error |
-| `correlationId` | UUID de la request, útil para rastrear en logs |
+| `mensaje` | Descripción para logs o mensajes de error |
+| `correlationId` | UUID de la request para rastrear en logs |
 | `timestamp` | Momento en que ocurrió el error |
 
 ### Paginación
@@ -454,21 +393,21 @@ Los endpoints de listado devuelven siempre el mismo envelope paginado:
 }
 ```
 
-La paginación es base 0 (la primera página es `pagina=0`). El tamaño por defecto es 20.
+La paginación es base 0. El tamaño por defecto es 20.
 
 ---
 
 ## Mapeo VGMDIS → VGM Core Geo
 
-VGMDIS (el sistema legado SQL Server) usa `id_legajo` (entero) como identificador de persona en la tabla `i_rrhh`.
+VGMDIS usa `id_legajo` (entero) como identificador de persona en `i_rrhh`.
 
-VGM Core Geo usa `co_empleado` (varchar 50) como código funcional. Cuando se importan empleados desde VGMDIS, el mapeo es directo:
+VGM Core Geo usa `co_entidad` (varchar 50) como código funcional. Cuando se importan datos desde VGMDIS:
 
 ```
-co_empleado = id_legajo.toString()
+co_entidad = id_legajo.toString()
 ```
 
-Esto tiene una consecuencia importante en la ingesta GPS: el Bridge VGMDIS puede enviar posiciones usando `coEmpleado = "1042"` sin necesidad de conocer el UUID interno del empleado en VGM Core Geo. El backend resuelve la correspondencia internamente.
+El Bridge VGMDIS puede enviar posiciones usando `coEntidad = "1042"` sin necesidad de conocer el UUID interno de la entidad. El backend resuelve la correspondencia internamente vía la función `buscar_entidad_por_codigo`.
 
 ---
 
@@ -478,8 +417,8 @@ Esto tiene una consecuencia importante en la ingesta GPS: el Bridge VGMDIS puede
 
 | Prefijo | Significado |
 |---|---|
-| `id_` | Identificador interno (bigint autoincremental). **Nunca se expone en la API.** |
-| `co_` | Código funcional (string legible por humanos o sistemas externos) |
+| `id_` | Identificador interno (bigint). **Nunca se expone en la API.** |
+| `co_` | Código funcional |
 | `de_` | Descripción o texto |
 | `nu_` | Número o medida |
 | `sn_` | Boolean (sí/no) |
@@ -487,26 +426,26 @@ Esto tiene una consecuencia importante en la ingesta GPS: el Bridge VGMDIS puede
 
 ### IDs en la API
 
-Toda entidad expone un campo `idPublico` de tipo UUID v4 generado por el backend. Los IDs internos (bigint) nunca aparecen en respuestas ni en rutas de la API, excepto en Zonas donde se usa `id` entero por ser una entidad de configuración sin requerimiento de UUID.
+Toda entidad expone `idPublico` (UUID v4). Los IDs internos nunca aparecen en respuestas ni en rutas.
 
 ### Formato de fechas
 
-Todas las fechas y timestamps en la API siguen ISO 8601 con timezone explícito (preferentemente UTC, sufijo `Z`).
+Todas las fechas en ISO 8601 con timezone explícito (UTC, sufijo `Z`).
 
 ### Versionado
 
-Todos los endpoints están bajo `/api/v1/`. El versionado es por URL.
+Todos los endpoints bajo `/api/v1/`. El versionado es por URL.
 
 ### Códigos HTTP usados
 
 | Código | Uso |
 |---|---|
-| 200 | OK — respuesta exitosa de GET, PUT |
-| 201 | Created — recurso creado exitosamente (POST) |
-| 204 | No Content — operación exitosa sin cuerpo de respuesta (DELETE) |
-| 400 | Bad Request — payload inválido o parámetros faltantes |
-| 401 | Unauthorized — token JWT ausente o inválido, o API Key inválida |
-| 403 | Forbidden — el usuario no tiene acceso al recurso con la empresa/sucursal indicada |
+| 200 | OK — GET, PUT exitoso |
+| 201 | Created — POST exitoso |
+| 204 | No Content — DELETE exitoso |
+| 400 | Bad Request — payload inválido |
+| 401 | Unauthorized — JWT ausente/inválido o API Key inválida |
+| 403 | Forbidden — sin acceso al recurso |
 | 404 | Not Found — recurso no encontrado |
-| 409 | Conflict — conflicto de datos (ej: código funcional duplicado) |
-| 500 | Internal Server Error — error inesperado del servidor |
+| 409 | Conflict — código funcional duplicado |
+| 500 | Internal Server Error |
